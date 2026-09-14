@@ -378,7 +378,10 @@ export async function getAccountUsage(
   return pending;
 }
 
-export function clearAccountUsageCacheForTests() {
+/** Drop cached usage, e.g. after the signed-in account changes. */
+export function clearAccountUsageCache() {
   cached = undefined;
   pending = undefined;
 }
+
+export const clearAccountUsageCacheForTests = clearAccountUsageCache;

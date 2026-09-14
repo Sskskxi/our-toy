@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { ModelChoices, Project } from "@/lib/types";
 import {
   CopyButton,
@@ -23,6 +23,7 @@ import {
   stageLabels,
   type ModelDefaults,
 } from "./debate";
+import { ClaudeLogo, OpenAILogo } from "./logos";
 import { PDF_MAX_BYTES, extractPdfText } from "./pdf";
 import type {
   AccountUsage,
@@ -89,18 +90,49 @@ function planLabel(plan: string) {
   return `${plan.charAt(0).toUpperCase()}${plan.slice(1)} 플랜`;
 }
 
+type AuthFlow = {
+  state: "idle" | "pending" | "done" | "failed";
+  url?: string;
+  error?: string;
+};
+type AuthState = { codex: AuthFlow; claude: AuthFlow; locked: boolean };
+type AuthAction = "login" | "logout" | "cancel" | "code";
+
 function ProviderLimits({
   name,
   usage,
+  flow,
+  locked,
+  onAuth,
 }: {
   name: "GPT" | "Claude";
   usage?: ProviderAccountUsage;
+  flow?: AuthFlow;
+  locked: boolean;
+  /** Resolves to an error message, or undefined on success. */
+  onAuth: (action: AuthAction, code?: string) => Promise<string | undefined>;
 }) {
+  const [busy, setBusy] = useState<AuthAction | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const signedIn = Boolean(usage?.account?.email);
+  const pending = flow?.state === "pending";
+  const shownError = error || (flow?.state === "failed" ? flow.error : "");
+  async function run(action: AuthAction, value?: string) {
+    setBusy(action);
+    setError("");
+    const problem = await onAuth(action, value);
+    setBusy(null);
+    setConfirming(false);
+    if (problem) setError(problem);
+    else if (action === "code") setCode("");
+  }
   return (
     <article className="providerLimits">
       <div className="providerName">
-        <span className={`avatar ${name.toLowerCase()}`}>
-          {name === "GPT" ? "G" : "C"}
+        <span className={`avatar brandLogo ${name.toLowerCase()}`}>
+          {name === "GPT" ? <OpenAILogo size={20} /> : <ClaudeLogo size={20} />}
         </span>
         <span>
           <b>
@@ -109,14 +141,223 @@ function ProviderLimits({
           </b>
           <small className="accountId" title={usage?.account?.email}>
             {usage?.account?.email ??
-              (usage ? (usage.status === "unavailable" ? "로그인 확인 불가" : "계정 정보 없음") : "확인 중…")}
+              (usage ? "로그인되어 있지 않아요" : "확인 중…")}
           </small>
           {usage?.account?.method && <small>{usage.account.method} 로그인</small>}
         </span>
+        {usage && (
+          <div className="accountActions">
+            {pending ? (
+              <button type="button" className="textButton" disabled={busy !== null} onClick={() => void run("cancel")}>
+                로그인 취소
+              </button>
+            ) : confirming ? (
+              <>
+                <span className="confirmText">로그아웃할까요?</span>
+                <button type="button" className="dangerButton" disabled={busy !== null} onClick={() => void run("logout")}>
+                  {busy === "logout" ? "로그아웃하는 중…" : "로그아웃"}
+                </button>
+                <button type="button" className="textButton" disabled={busy !== null} onClick={() => setConfirming(false)}>
+                  취소
+                </button>
+              </>
+            ) : signedIn ? (
+              <>
+                <button type="button" className="weakButton" disabled={locked || busy !== null} onClick={() => void run("login")}>
+                  {busy === "login" ? "여는 중…" : "계정 전환"}
+                </button>
+                <button type="button" className="textButton" disabled={locked || busy !== null} onClick={() => setConfirming(true)}>
+                  로그아웃
+                </button>
+              </>
+            ) : (
+              <button type="button" className="fillButton" disabled={locked || busy !== null} onClick={() => void run("login")}>
+                {busy === "login" ? "여는 중…" : "로그인"}
+              </button>
+            )}
+          </div>
+        )}
       </div>
-      <LimitValue window={usage?.short} />
-      <LimitValue window={usage?.weekly} />
+      {pending && (
+        <div className="authPending" role="status">
+          <p>
+            브라우저에서 {name} 로그인을 마쳐 주세요.
+            {signedIn && " 다른 계정을 쓰려면 브라우저에서 그 계정을 골라 주세요."}
+          </p>
+          {flow?.url && (
+            <a href={flow.url} target="_blank" rel="noopener noreferrer">
+              브라우저가 안 열렸다면 여기를 눌러 주세요
+            </a>
+          )}
+          {name === "Claude" && (
+            <form
+              className="authCode"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void run("code", code);
+              }}
+            >
+              <label htmlFor="claudeAuthCode">로그인 페이지에 코드가 보이면 붙여넣어 주세요</label>
+              <span>
+                <input
+                  id="claudeAuthCode"
+                  value={code}
+                  autoComplete="off"
+                  maxLength={2000}
+                  onChange={(e) => setCode(e.target.value)}
+                />
+                <button className="weakButton" disabled={code.trim().length < 4 || busy !== null}>
+                  확인
+                </button>
+              </span>
+            </form>
+          )}
+        </div>
+      )}
+      {shownError && !pending && (
+        <p className="authError" role="alert">
+          {shownError}
+        </p>
+      )}
+      <div className="limitRow">
+        <LimitValue window={usage?.short} />
+        <LimitValue window={usage?.weekly} />
+      </div>
     </article>
+  );
+}
+
+/** "2분 뒤 자동으로 이어서 실행" — ticks every second until the scheduled time. */
+function AutoResumeCountdown({ at }: { at: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const left = Math.max(0, Date.parse(at) - now);
+  if (!left) return <>곧 자동으로 이어서 실행해요 · </>;
+  const minutes = Math.floor(left / 60000);
+  const seconds = Math.floor((left % 60000) / 1000);
+  return (
+    <>
+      {minutes ? `${minutes}분 ${seconds}초` : `${seconds}초`} 뒤 확인해요 ·{" "}
+    </>
+  );
+}
+
+/** Turns rendered at first; older ones load on request so long chats stay light. */
+const TURN_PAGE = 20;
+/** Answers longer than this are folded when they are not among the latest turns. */
+const FOLD_CHARS = 1800;
+
+type Turn = Project["conversation"]["turns"][number];
+
+// A finished turn never changes, so re-render only when this turn moves.
+const ChatTurnView = memo(
+  function ChatTurnView({
+    turn,
+    foldable,
+    onRetry,
+  }: {
+    turn: Turn;
+    foldable: boolean;
+    onRetry: (turnId: string) => void;
+  }) {
+    const long = foldable && (turn.answer?.length ?? 0) > FOLD_CHARS;
+    const [open, setOpen] = useState(false);
+    const folded = long && !open;
+    const [drafts, setDrafts] = useState(false);
+    return (
+      <article className="chatTurn">
+        <div className="chatMessage userBubble">
+          <small>
+            나 · {turn.target === "both" ? "GPT + Claude" : turn.target} ·{" "}
+            <Stamp at={turn.createdAt} label="요청" />{" "}
+            {turn.status !== "queued" && (
+              <Elapsed start={turn.createdAt} end={turn.updatedAt} running={turn.status === "running"} />
+            )}
+          </small>
+          <RichMarkdown>{turn.userText}</RichMarkdown>
+        </div>
+        {turn.status === "queued" && (
+          <div className="chatProgress" role="status">
+            답변 순서를 기다리고 있어요…
+          </div>
+        )}
+        {turn.status === "running" && (
+          <div className="chatProgress" role="status">
+            {turn.target === "both" ? "두 모델이 답하고 있어요…" : `${turn.target}가 답하고 있어요…`}
+          </div>
+        )}
+        {turn.answer && (
+          <div className={`chatMessage assistantBubble ${folded ? "folded" : ""}`}>
+            <small>
+              {turn.target === "both" ? "공동 정리" : turn.target}
+              {turn.status === "complete" && (
+                <>
+                  {" · "}
+                  <Stamp at={turn.updatedAt} label="답변" />
+                </>
+              )}
+            </small>
+            {folded ? (
+              // Skip Markdown parsing for folded answers; plain text is enough for a preview.
+              <p className="foldPreview">{turn.answer.slice(0, 400)}…</p>
+            ) : (
+              <RichMarkdown>{turn.answer}</RichMarkdown>
+            )}
+            {long && (
+              <button type="button" className="textButton foldToggle" onClick={() => setOpen((v) => !v)}>
+                {open ? "접기" : `펼쳐 보기 · ${turn.answer.length.toLocaleString()}자`}
+              </button>
+            )}
+            <CopyButton text={turn.answer} label="답변 복사" />
+          </div>
+        )}
+        {turn.target === "both" && (turn.responses.GPT || turn.responses.Claude) && (
+          <details className="modelDrafts" onToggle={(e) => setDrafts(e.currentTarget.open)}>
+            <summary>GPT · Claude 답변 나란히 보기</summary>
+            {drafts && <DraftGrid turn={turn} />}
+          </details>
+        )}
+        {turn.target !== "both" && turn.responses[turn.target] && (
+          <small className="turnModel">{turn.responses[turn.target]!.model}</small>
+        )}
+        {turn.status === "failed" && (
+          <div className="error chatError" role="alert">
+            {turn.error ?? "답변을 만들지 못했어요."}
+            <button type="button" onClick={() => onRetry(turn.id)}>
+              다시 시도
+            </button>
+          </div>
+        )}
+      </article>
+    );
+  },
+  (a, b) =>
+    a.foldable === b.foldable &&
+    a.turn.id === b.turn.id &&
+    a.turn.status === b.turn.status &&
+    a.turn.updatedAt === b.turn.updatedAt &&
+    a.turn.answer === b.turn.answer &&
+    a.turn.error === b.turn.error,
+);
+
+/** Side-by-side answers, rendered only once the user opens the details. */
+function DraftGrid({ turn }: { turn: Turn }) {
+  return (
+    <div className="draftGrid">
+      {(["GPT", "Claude"] as const).map(
+        (actor) =>
+          turn.responses[actor] && (
+            <div className={`modelDraft ${actor.toLowerCase()}`} key={actor}>
+              <b>{actor}</b>
+              <small>{turn.responses[actor]!.model}</small>
+              <RichMarkdown>{turn.responses[actor]!.answer.summary}</RichMarkdown>
+            </div>
+          ),
+      )}
+    </div>
   );
 }
 
@@ -270,6 +511,75 @@ export default function Page() {
   useEffect(() => {
     if (id) setMessage(loadLocal<string>(`chat:${id}`) ?? "");
   }, [id]);
+  const [auth, setAuth] = useState<AuthState | null>(null);
+  const [usageNonce, setUsageNonce] = useState(0);
+  const [authNonce, setAuthNonce] = useState(0);
+  // Sign-in state: poll quickly only while a browser sign-in is open.
+  useEffect(() => {
+    if (id || view !== "home") return;
+    let alive = true;
+    let last: AuthState | null = null;
+    let timer: ReturnType<typeof setTimeout>;
+    const pendingIn = (s: AuthState | null) =>
+      Boolean(s && (s.codex.state === "pending" || s.claude.state === "pending"));
+    async function poll() {
+      try {
+        const res = await fetch("/api/account-auth", { cache: "no-store" });
+        if (res.ok) {
+          const next = (await res.json()) as AuthState;
+          if (!alive) return;
+          // A sign-in that just finished changed the account; reread usage now.
+          if (
+            last &&
+            (["codex", "claude"] as const).some(
+              (p) => last![p].state === "pending" && next[p].state !== "pending",
+            )
+          )
+            setUsageNonce((n) => n + 1);
+          last = next;
+          setAuth(next);
+        }
+      } catch {}
+      if (alive) timer = setTimeout(poll, pendingIn(last) ? 2000 : 15000);
+    }
+    void poll();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [id, view, authNonce]);
+  async function accountAction(
+    provider: "codex" | "claude",
+    action: AuthAction,
+    code?: string,
+  ) {
+    // Codex hands back a URL for us to open. Open the tab during the click so
+    // popup blockers allow it; Claude's CLI opens the browser by itself.
+    const tab = provider === "codex" && action === "login" ? window.open("", "_blank") : null;
+    try {
+      const res = await fetch("/api/account-auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, action, code }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw Error(data.error);
+      setAuth(data);
+      const url: string | undefined = data[provider]?.url;
+      if (tab) {
+        if (url) {
+          tab.opener = null;
+          tab.location.href = url;
+        } else tab.close();
+      }
+      if (action === "logout") setUsageNonce((n) => n + 1);
+      setAuthNonce((n) => n + 1);
+      return undefined;
+    } catch (e) {
+      tab?.close();
+      return e instanceof Error ? e.message : "계정 작업을 마치지 못했어요.";
+    }
+  }
   useEffect(() => {
     if (id || view !== "home") return;
     let alive = true;
@@ -299,7 +609,7 @@ export default function Page() {
       alive = false;
       clearInterval(timer);
     };
-  }, [id, view]);
+  }, [id, view, usageNonce]);
   useEffect(() => {
     let alive = true;
     let first = true;
@@ -487,6 +797,11 @@ export default function Page() {
         current ? { ...current, status: "queued", stage: "이어서 실행 대기", error: undefined } : current,
       );
   }
+  async function cancelAutoResume() {
+    if (!project) return;
+    if (await projectAction("DELETE", "/auto-resume"))
+      setProject((c) => (c ? { ...c, autoResume: undefined } : c));
+  }
   async function projectAction(
     method: "POST" | "PATCH" | "DELETE",
     suffix: string,
@@ -573,11 +888,135 @@ export default function Page() {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
+  const chatTurns = project?.conversation?.turns ?? [];
+  const [turnWindow, setTurnWindow] = useState(TURN_PAGE);
+  useEffect(() => setTurnWindow(TURN_PAGE), [id]);
   const canChat = Boolean(
     project &&
       project.status !== "running" &&
       project.status !== "queued" &&
       project.calls.some((c) => c.status === "complete"),
+  );
+  // Follow the conversation to the newest turn, but only when a turn is added
+  // or an answer lands, so polling never yanks the page while someone reads.
+  const turnMarker = project
+    ? project.conversation.turns.map((t) => `${t.id}:${t.status}`).join(",")
+    : "";
+  const lastMarker = useRef("");
+  useEffect(() => {
+    const previous = lastMarker.current;
+    lastMarker.current = turnMarker;
+    if (!previous || previous === turnMarker || tab !== "conversation") return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    document
+      .getElementById("chatEnd")
+      ?.scrollIntoView({ block: "end", behavior: reduce ? "auto" : "smooth" });
+  }, [turnMarker, tab]);
+  const followUpIdeas = [
+    "핵심만 세 줄로 요약해 줘",
+    "두 모델 의견이 가장 크게 갈린 부분은 뭐야?",
+    "근거가 약한 주장만 골라서 다시 확인해 줘",
+    "다음에 더 조사하면 좋을 것들을 정리해 줘",
+  ];
+  const composer = project && (
+    <form
+      className="chatComposer"
+      onSubmit={(e) => {
+        void sendMessage(e).then(() => setTab("conversation"));
+      }}
+    >
+      {canChat && tab !== "conversation" && (
+        <p className="composerLead">
+          {project.status === "complete"
+            ? "연구가 끝났어요. 결과에 대해 더 궁금한 걸 물어보세요."
+            : "연구가 중간에 멈췄지만, 지금까지 결과로 질문할 수 있어요."}
+        </p>
+      )}
+      {canChat && !message.trim() && (
+        <div className="ideaChips" aria-label="질문 예시">
+          {followUpIdeas.map((idea) => (
+            <button
+              type="button"
+              key={idea}
+              onClick={() => {
+                setMessage(idea);
+                saveLocal(`chat:${project.id}`, idea);
+                document.getElementById("followupMessage")?.focus();
+              }}
+            >
+              {idea}
+            </button>
+          ))}
+        </div>
+      )}
+      <MarkdownField
+        id="followupMessage"
+        label="이어서 질문하기"
+        compact
+        value={message}
+        disabled={!canChat || messageBusy}
+        onChange={(value) => {
+          setMessage(value);
+          saveLocal(`chat:${project.id}`, value);
+        }}
+        minLength={1}
+        maxLength={10000}
+        required
+        placeholder={
+          canChat
+            ? "이 연구에 이어서 질문하거나, 다음 작업을 요청해 보세요."
+            : project.status === "running" || project.status === "queued"
+              ? "연구가 끝나면 여기서 이어서 질문할 수 있어요. 진행 중에는 과정 탭의 개입 메모를 써 주세요."
+              : "아직 대화할 연구 결과가 없어요. 먼저 이어서 실행해 주세요."
+        }
+        onSubmitShortcut={() =>
+          void sendMessage().then(() => setTab("conversation"))
+        }
+      />
+      <div className="chatActions">
+        <label>
+          응답 대상
+          <select
+            id="messageTarget"
+            value={messageTarget}
+            disabled={!canChat || messageBusy}
+            onChange={(e) =>
+              setMessageTarget(e.target.value as "GPT" | "Claude" | "both")
+            }
+          >
+            <option value="both">GPT + Claude 둘 다</option>
+            <option value="GPT">GPT만</option>
+            <option value="Claude">Claude만</option>
+          </select>
+        </label>
+        {project.mode === "subscription" && (
+          <details className="chatModelDetails">
+            <summary>이번 질문의 모델 바꾸기</summary>
+            <ModelPicker
+              value={chatModels}
+              onChange={setChatModels}
+              defaults={{
+                GPT: {
+                  model: project.models?.GPT?.model ?? modelDefaults?.GPT.model ?? "",
+                  effort: project.models?.GPT?.effort ?? modelDefaults?.GPT.effort ?? "",
+                },
+                Claude: {
+                  model: project.models?.Claude?.model ?? modelDefaults?.Claude.model ?? "",
+                  effort: project.models?.Claude?.effort ?? modelDefaults?.Claude.effort ?? "",
+                },
+              }}
+              disabled={messageBusy}
+            />
+          </details>
+        )}
+        <button
+          className="primary"
+          disabled={!canChat || messageBusy || !message.trim()}
+        >
+          {messageBusy ? "보내는 중…" : "보내기"}
+        </button>
+      </div>
+    </form>
   );
   return (
     <div className="shell">
@@ -688,9 +1127,24 @@ export default function Page() {
                     : "확인 중…"}
                 </span>
               </div>
+              {auth?.locked && (
+                <p className="authHint">구독 모드 연구가 끝나면 계정을 바꾸거나 로그아웃할 수 있어요.</p>
+              )}
               <div className="accountUsageGrid">
-                <ProviderLimits name="GPT" usage={accountUsage?.codex} />
-                <ProviderLimits name="Claude" usage={accountUsage?.claude} />
+                <ProviderLimits
+                  name="GPT"
+                  usage={accountUsage?.codex}
+                  flow={auth?.codex}
+                  locked={Boolean(auth?.locked)}
+                  onAuth={(action, code) => accountAction("codex", action, code)}
+                />
+                <ProviderLimits
+                  name="Claude"
+                  usage={accountUsage?.claude}
+                  flow={auth?.claude}
+                  locked={Boolean(auth?.locked)}
+                  onAuth={(action, code) => accountAction("claude", action, code)}
+                />
               </div>
             </section>
           )}
@@ -1055,10 +1509,29 @@ export default function Page() {
               {(project.status === "failed" || project.status === "interrupted") &&
                 project.mode !== "live" && (
                   <div className="resumeBar">
-                    <span>
-                      완료된 {project.calls.filter((c) => c.status === "complete").length}개 단계는 저장돼
-                      있습니다. 한도·로그인 문제를 해결한 뒤 이어서 실행하면 멈춘 단계부터 다시 호출합니다.
-                    </span>
+                    {project.status === "failed" && project.autoResume ? (
+                      <span className="autoResumeNote" role="status">
+                        <b>
+                          <AutoResumeCountdown at={project.autoResume.at} />
+                        </b>
+                        {project.autoResume.note}
+                        {project.autoResume.reason !== "limit" &&
+                          ` · 자동 재시도 ${project.autoResume.attempts}/3`}
+                        <button
+                          type="button"
+                          className="textButton"
+                          disabled={actionBusy}
+                          onClick={() => void cancelAutoResume()}
+                        >
+                          자동 재개 끄기
+                        </button>
+                      </span>
+                    ) : (
+                      <span>
+                        끝난 {project.calls.filter((c) => c.status === "complete").length}개 단계는 저장돼
+                        있어요. 이어서 실행하면 멈춘 단계부터 다시 해요.
+                      </span>
+                    )}
                     {project.mode === "subscription" && (
                       <details className="chatModelDetails">
                         <summary>모델·추론 강도 바꿔서 이어가기</summary>
@@ -1171,174 +1644,28 @@ export default function Page() {
                           </p>
                         </div>
                       )}
-                      {(project.conversation?.turns ?? []).map((turn) => (
-                        <article className="chatTurn" key={turn.id}>
-                          <div className="chatMessage userBubble">
-                            <small>
-                              나 · {turn.target === "both" ? "GPT + Claude" : turn.target} ·{" "}
-                              <Stamp at={turn.createdAt} label="요청" />{" "}
-                              {turn.status !== "queued" && (
-                                <Elapsed
-                                  start={turn.createdAt}
-                                  end={turn.updatedAt}
-                                  running={turn.status === "running"}
-                                />
-                              )}
-                            </small>
-                            <RichMarkdown>{turn.userText}</RichMarkdown>
-                          </div>
-                          {turn.status === "queued" && (
-                            <div className="chatProgress" role="status">
-                              답변 순서를 기다리고 있습니다…
-                            </div>
-                          )}
-                          {turn.status === "running" && (
-                            <div className="chatProgress" role="status">
-                              {turn.target === "both"
-                                ? "두 모델이 답변하고 있습니다…"
-                                : `${turn.target}가 답변하고 있습니다…`}
-                            </div>
-                          )}
-                          {turn.answer && (
-                            <div className="chatMessage assistantBubble">
-                              <small>
-                                {turn.target === "both" ? "공동 정리" : turn.target}
-                                {turn.status === "complete" && (
-                                  <>
-                                    {" · "}
-                                    <Stamp at={turn.updatedAt} label="답변" />
-                                  </>
-                                )}
-                              </small>
-                              <RichMarkdown>{turn.answer}</RichMarkdown>
-                              <CopyButton text={turn.answer} label="답변 복사" />
-                            </div>
-                          )}
-                          {turn.target === "both" &&
-                            (turn.responses.GPT || turn.responses.Claude) && (
-                              <details className="modelDrafts">
-                                <summary>GPT · Claude 답변 나란히 보기</summary>
-                                <div className="draftGrid">
-                                  {(["GPT", "Claude"] as const).map(
-                                    (actor) =>
-                                      turn.responses[actor] && (
-                                        <div
-                                          className={`modelDraft ${actor.toLowerCase()}`}
-                                          key={actor}
-                                        >
-                                          <b>{actor}</b>
-                                          <small>{turn.responses[actor]!.model}</small>
-                                          <RichMarkdown>
-                                            {turn.responses[actor]!.answer.summary}
-                                          </RichMarkdown>
-                                        </div>
-                                      ),
-                                  )}
-                                </div>
-                              </details>
-                            )}
-                          {turn.target !== "both" && turn.responses[turn.target] && (
-                            <small className="turnModel">
-                              {turn.responses[turn.target]!.model}
-                            </small>
-                          )}
-                          {turn.status === "failed" && (
-                            <div className="error chatError" role="alert">
-                              {turn.error ?? "답변 생성에 실패했습니다."}
-                              <button
-                                type="button"
-                                onClick={() => void retryMessage(turn.id)}
-                              >
-                                다시 시도
-                              </button>
-                            </div>
-                          )}
-                        </article>
-                      ))}
-                    </div>
-                    <form className="chatComposer" onSubmit={sendMessage}>
-                      <MarkdownField
-                        id="followupMessage"
-                        label="후속 질문"
-                        compact
-                        value={message}
-                        disabled={!canChat || messageBusy}
-                        onChange={(value) => {
-                          setMessage(value);
-                          saveLocal(`chat:${project.id}`, value);
-                        }}
-                        minLength={1}
-                        maxLength={10000}
-                        required
-                        placeholder={
-                          canChat
-                            ? project.status === "complete"
-                              ? "이 연구에 이어서 질문하거나, 다음 작업을 요청해 보세요."
-                              : "연구가 중간에 멈췄지만, 지금까지 결과로 질문할 수 있어요."
-                            : project.status === "running" || project.status === "queued"
-                              ? "연구가 진행 중이에요. 진행 중에는 과정 탭의 개입 메모를 써 주세요."
-                              : "아직 대화할 연구 결과가 없어요. 먼저 이어서 실행해 주세요."
-                        }
-                        onSubmitShortcut={() => void sendMessage()}
-                      />
-                      <div className="chatActions">
-                        <label>
-                          응답 대상
-                          <select
-                            id="messageTarget"
-                            value={messageTarget}
-                            disabled={!canChat || messageBusy}
-                            onChange={(e) =>
-                              setMessageTarget(
-                                e.target.value as "GPT" | "Claude" | "both",
-                              )
-                            }
-                          >
-                            <option value="both">GPT + Claude 둘 다</option>
-                            <option value="GPT">GPT만</option>
-                            <option value="Claude">Claude만</option>
-                          </select>
-                        </label>
-                        {project.mode === "subscription" && (
-                          <details className="chatModelDetails">
-                            <summary>이번 질문의 모델 바꾸기</summary>
-                            <ModelPicker
-                              value={chatModels}
-                              onChange={setChatModels}
-                              defaults={{
-                                GPT: {
-                                  model:
-                                    project.models?.GPT?.model ??
-                                    modelDefaults?.GPT.model ??
-                                    "",
-                                  effort:
-                                    project.models?.GPT?.effort ??
-                                    modelDefaults?.GPT.effort ??
-                                    "",
-                                },
-                                Claude: {
-                                  model:
-                                    project.models?.Claude?.model ??
-                                    modelDefaults?.Claude.model ??
-                                    "",
-                                  effort:
-                                    project.models?.Claude?.effort ??
-                                    modelDefaults?.Claude.effort ??
-                                    "",
-                                },
-                              }}
-                              disabled={messageBusy}
-                            />
-                          </details>
-                        )}
+                      {turnWindow < chatTurns.length && (
                         <button
-                          className="primary"
-                          disabled={!canChat || messageBusy || !message.trim()}
+                          type="button"
+                          className="textButton olderTurns"
+                          onClick={() => setTurnWindow((n) => n + TURN_PAGE)}
                         >
-                          {messageBusy ? "저장 중…" : "보내기 ↗"}
+                          이전 대화 {Math.min(TURN_PAGE, chatTurns.length - turnWindow)}개 더 보기
+                          <span> · 숨긴 대화 {chatTurns.length - turnWindow}개</span>
                         </button>
-                      </div>
-                    </form>
+                      )}
+                      {chatTurns.slice(-turnWindow).map((turn, index, shown) => (
+                        <ChatTurnView
+                          key={turn.id}
+                          turn={turn}
+                          // Older long answers start folded; the latest two stay open.
+                          foldable={index < shown.length - 2}
+                          onRetry={retryMessage}
+                        />
+                      ))}
+                      <div id="chatEnd" />
+                    </div>
+                    {composer}
                   </>
                 )}
                 {tab === "references" && (
@@ -1560,6 +1887,8 @@ export default function Page() {
                     </div>
                   ))}
               </section>
+              {/* Asking more should never require finding the 대화 tab first. */}
+              {tab !== "conversation" && canChat && composer}
             </>
           )}
           <footer>
