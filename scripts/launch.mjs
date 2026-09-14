@@ -170,5 +170,31 @@ start();
 setInterval(() => {
   if (!updating && !stopping && fs.existsSync(requestFile)) void applyUpdate();
 }, 2000);
+
+// Opt-in automatic updates: ask the app whether a new version can be applied
+// right now (nothing running, clean tree) and request it through the same route,
+// so every safety check in lib/updater.ts still applies.
+const settingsFile = path.join(dataDir, ".update-settings.json");
+async function autoUpdateTick() {
+  if (updating || stopping || fs.existsSync(requestFile)) return;
+  let auto = false;
+  try {
+    auto = JSON.parse(fs.readFileSync(settingsFile, "utf8")).auto === true;
+  } catch {}
+  if (!auto) return;
+  const url = `http://127.0.0.1:${process.env.PORT || "3000"}/api/update`;
+  try {
+    const status = await (await fetch(`${url}?refresh=1`, { signal: AbortSignal.timeout(60000) })).json();
+    if (!status.canUpdate) return;
+    console.log(`[update] 새 커밋 ${status.behind}개를 자동으로 적용합니다.`);
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      signal: AbortSignal.timeout(60000),
+    });
+  } catch {}
+}
+setInterval(() => void autoUpdateTick(), 30 * 60 * 1000).unref();
 process.on("SIGINT", () => stop());
 process.on("SIGTERM", () => stop());

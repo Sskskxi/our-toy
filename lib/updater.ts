@@ -8,7 +8,31 @@ import { briefs, dataDir } from "./store";
 // fixed fast-forward pull and restarts it. No request data reaches a command.
 export const UPDATE_REQUEST = ".update-request.json";
 export const UPDATE_RESULT = ".update-result.json";
-const FETCH_EVERY_MS = 10 * 60 * 1000;
+export const UPDATE_SETTINGS = ".update-settings.json";
+const FETCH_EVERY_MS = 30 * 60 * 1000;
+
+// The build this server process was started with. Tabs opened before an update
+// compare it with the value they first saw and offer a reload.
+const SERVER_BUILD = (() => {
+  try {
+    return fs.readFileSync(path.join(process.cwd(), ".next", "BUILD_ID"), "utf8").trim() || undefined;
+  } catch {
+    return undefined;
+  }
+})();
+
+/** Opt-in: the launcher applies new versions by itself when nothing is running. */
+export function autoUpdateEnabled() {
+  return readJson<{ auto?: boolean }>(path.join(dataDir(), UPDATE_SETTINGS))?.auto === true;
+}
+
+export function setAutoUpdate(auto: boolean) {
+  const file = path.join(dataDir(), UPDATE_SETTINGS);
+  const temp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(temp, JSON.stringify({ auto, changedAt: new Date().toISOString() }), { mode: 0o600 });
+  fs.renameSync(temp, file);
+  return auto;
+}
 const REF = /^[A-Za-z0-9._\/-]{1,100}$/;
 
 export type UpdateStatus = {
@@ -24,6 +48,10 @@ export type UpdateStatus = {
   reason?: string;
   pending: boolean;
   checkedAt: string;
+  /** Apply new versions automatically when idle. */
+  auto: boolean;
+  /** Build ID of this running server; undefined in `next dev`. */
+  build?: string;
   lastResult?: {
     state: "done" | "failed";
     message: string;
@@ -84,6 +112,8 @@ export async function updateStatus({ refresh = false } = {}): Promise<UpdateStat
     canUpdate: false,
     pending: pendingRequest(),
     checkedAt: new Date().toISOString(),
+    auto: autoUpdateEnabled(),
+    build: SERVER_BUILD,
     lastResult: readJson(path.join(dataDir(), UPDATE_RESULT)),
   };
   if (!base.enabled) return { ...base, reason: "ENABLE_SELF_UPDATE=false 로 꺼져 있습니다." };

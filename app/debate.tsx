@@ -1171,6 +1171,8 @@ type UpdateInfo = {
   canUpdate: boolean;
   reason?: string;
   pending: boolean;
+  auto: boolean;
+  build?: string;
   lastResult?: { state: "done" | "failed"; message: string; finishedAt: string };
 };
 
@@ -1186,17 +1188,50 @@ export function UpdateButton() {
   }, [open]);
   const [phase, setPhase] = useState<"idle" | "requesting" | "restarting" | "failed">("idle");
   const [message, setMessage] = useState("");
+  // The build this tab was loaded with; a different one means the app restarted
+  // on a new version while this tab kept showing the old code.
+  const firstBuild = useRef<string | undefined>(undefined);
+  const [staleTab, setStaleTab] = useState(false);
+  const [savingAuto, setSavingAuto] = useState(false);
   async function load(refresh = false) {
     try {
       const res = await fetch(`/api/update${refresh ? "?refresh=1" : ""}`, { cache: "no-store" });
-      if (res.ok) setInfo(await res.json());
+      if (!res.ok) return;
+      const next: UpdateInfo = await res.json();
+      if (next.build) {
+        firstBuild.current ??= next.build;
+        if (next.build !== firstBuild.current) setStaleTab(true);
+      }
+      setInfo(next);
     } catch {}
   }
   useEffect(() => {
     void load();
+    // The server fetches GitHub at most every 30 minutes; match that here.
     const timer = setInterval(() => void load(), 30 * 60 * 1000);
-    return () => clearInterval(timer);
+    const wake = () => {
+      if (!document.hidden) void load();
+    };
+    document.addEventListener("visibilitychange", wake);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", wake);
+    };
   }, []);
+  async function toggleAuto(auto: boolean) {
+    setSavingAuto(true);
+    try {
+      const res = await fetch("/api/update", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auto }),
+      });
+      if (res.ok) setInfo(await res.json());
+    } catch {
+    } finally {
+      setSavingAuto(false);
+    }
+  }
   async function apply() {
     setPhase("requesting");
     setMessage("");
@@ -1215,7 +1250,7 @@ export function UpdateButton() {
       const poll = async (): Promise<void> => {
         if (Date.now() - started > 15 * 60 * 1000) {
           setPhase("failed");
-          setMessage("업데이트가 너무 오래 걸립니다. 터미널 로그를 확인하세요.");
+          setMessage("업데이트가 너무 오래 걸려요. 잠시 뒤 새로고침해 주세요.");
           return;
         }
         await new Promise((r) => setTimeout(r, 3000));
@@ -1242,12 +1277,21 @@ export function UpdateButton() {
       setMessage(e instanceof Error ? e.message : String(e));
     }
   }
+  if (staleTab)
+    return (
+      <div className="updateBanner">
+        <button type="button" className="updateButton" onClick={() => location.reload()}>
+          <span className="dotNew" aria-hidden />
+          새 버전이 적용됐어요 · 새로고침
+        </button>
+      </div>
+    );
   if (!info?.supported || !info.enabled || (!info.behind && phase === "idle")) return null;
   return (
     <div className="updateBanner">
       <button type="button" className="updateButton" onClick={() => setOpen(true)}>
         <span className="dotNew" aria-hidden />
-        새 업데이트 {info.behind}개
+        새 업데이트 {info.behind}개{info.auto && info.canUpdate ? " · 곧 자동 적용" : ""}
       </button>
       {open && (
         <dialog
@@ -1263,7 +1307,7 @@ export function UpdateButton() {
           }}
         >
           <div>
-            <h2 id="updateTitle">업데이트가 있습니다</h2>
+            <h2 id="updateTitle">새 버전이 있어요</h2>
             <p className="help">
               현재 {info.current} · {info.upstream}에 새 커밋 {info.behind}개
             </p>
@@ -1276,12 +1320,23 @@ export function UpdateButton() {
               ))}
             </ul>
             <p className="help">
-              누르면 GitHub에서 최신 코드를 받아(git pull --ff-only) 필요한 경우 의존성을 다시 설치하고 앱을
-              재시작합니다. 연구 기록과 설정(.env.local, data/)은 그대로 유지됩니다.
+              GitHub에서 최신 코드를 받아 앱을 다시 시작해요. 연구 기록과 설정은 그대로 남아요.
             </p>
+            <label className="autoUpdateToggle">
+              <input
+                type="checkbox"
+                checked={info.auto}
+                disabled={savingAuto}
+                onChange={(e) => void toggleAuto(e.target.checked)}
+              />
+              <span>
+                <b>자동으로 업데이트</b>
+                <small>30분마다 확인하고, 진행 중인 연구가 없을 때 적용해요.</small>
+              </span>
+            </label>
             {info.reason && phase === "idle" && <p className="error">{info.reason}</p>}
             {phase === "restarting" && (
-              <p role="status">업데이트 적용 중… 앱이 재시작되면 자동으로 새로고침됩니다.</p>
+              <p role="status">업데이트하는 중이에요. 앱이 다시 켜지면 자동으로 새로고침해요.</p>
             )}
             {phase === "failed" && <p className="error">{message}</p>}
             <div className="updateActions">

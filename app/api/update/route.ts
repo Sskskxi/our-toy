@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rejectUnsafe } from "@/lib/http";
-import { requestUpdate, updateStatus } from "@/lib/updater";
+import { requestUpdate, setAutoUpdate, updateStatus } from "@/lib/updater";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,4 +29,17 @@ export async function POST(req: NextRequest) {
       { status: 409 },
     );
   }
+}
+
+// Turn automatic updates on or off. The launcher polls this setting.
+export async function PUT(req: NextRequest) {
+  const unsafe = rejectUnsafe(req);
+  if (unsafe) return unsafe;
+  const body = await req.json().catch(() => null);
+  if (typeof body?.auto !== "boolean")
+    return NextResponse.json({ error: "auto 값(true/false)이 필요해요." }, { status: 400 });
+  setAutoUpdate(body.auto);
+  return NextResponse.json(await updateStatus(), {
+    headers: { "Cache-Control": "private, no-store" },
+  });
 }
