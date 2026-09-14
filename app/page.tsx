@@ -12,11 +12,14 @@ import {
   ModelPicker,
   RichMarkdown,
   UpdateButton,
+  loadLocal,
+  saveLocal,
   cleanModels,
   firstLine,
   stageLabels,
   type ModelDefaults,
 } from "./debate";
+import { PDF_MAX_BYTES, extractPdfText } from "./pdf";
 import type {
   AccountUsage,
   AccountUsageWindow,
@@ -131,13 +134,32 @@ export default function Page() {
       if (attachments.length + files.length > 5)
         throw Error("파일은 최대 5개까지 첨부할 수 있습니다.");
       const added: { name: string; text: string }[] = [];
+      const used = () =>
+        referenceText.length +
+        [...attachments, ...added].reduce((n, f) => n + f.text.length, 0);
       for (const file of files) {
+        if (/\.pdf$/i.test(file.name)) {
+          if (file.size > PDF_MAX_BYTES)
+            throw Error(`${file.name}: PDF는 20MB 이하여야 합니다.`);
+          // Long PDFs keep their first pages within the per-file and total budgets.
+          const budget = Math.min(40000, 60000 - used()) - 120;
+          if (budget < 500)
+            throw Error("참고 자료 합계 60,000자를 넘어 PDF를 더 첨부할 수 없습니다.");
+          const pdf = await extractPdfText(file, budget);
+          added.push({
+            name: file.name,
+            text: pdf.truncated
+              ? `${pdf.text}\n\n[안내: 전체 ${pdf.pages}쪽 중 글자 수 제한으로 앞부분만 포함했습니다.]`
+              : pdf.text,
+          });
+          continue;
+        }
         if (!/\.(txt|md|csv|json|log)$/i.test(file.name))
           throw Error(
-            "TXT, MD, CSV, JSON, LOG 파일을 지원합니다. PDF·Word·한글 문서는 내용을 복사해 참고 텍스트에 넣어주세요.",
+            "PDF, TXT, MD, CSV, JSON, LOG 파일을 지원합니다. Word·한글 문서는 PDF로 저장하거나 내용을 복사해 참고 텍스트에 넣어주세요.",
           );
         if (file.size > 160000)
-          throw Error(`${file.name}: 파일은 160KB 이하여야 합니다.`);
+          throw Error(`${file.name}: 텍스트 파일은 160KB 이하여야 합니다.`);
         const text = new TextDecoder("utf-8", { fatal: true }).decode(
           await file.arrayBuffer(),
         );
@@ -147,11 +169,7 @@ export default function Page() {
           );
         added.push({ name: file.name, text });
       }
-      if (
-        referenceText.length +
-          [...attachments, ...added].reduce((n, f) => n + f.text.length, 0) >
-        60000
-      )
+      if (used() > 60000)
         throw Error("참고 텍스트와 파일 내용은 합계 60,000자까지 가능합니다.");
       setAttachments((previous) => [...previous, ...added]);
     } catch (e) {
@@ -165,6 +183,46 @@ export default function Page() {
     }
   }
   const [tab, setTab] = useState("overview");
+  const [restored, setRestored] = useState(false);
+  // Reopen the last project/tab and unsent drafts after a reload or restart.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const p = params.get("p");
+    if (p && /^[a-f0-9-]{36}$/.test(p)) {
+      setId(p);
+      setTab(params.get("tab") ?? "overview");
+    }
+    const draft = loadLocal<{
+      topic?: string;
+      referenceText?: string;
+      attachments?: { name: string; text: string }[];
+      strategy?: "codraft" | "debate";
+    }>("draft");
+    if (draft) {
+      setTopic(draft.topic ?? "");
+      setReferenceText(draft.referenceText ?? "");
+      setAttachments(draft.attachments ?? []);
+      if (draft.strategy) setStrategy(draft.strategy);
+    }
+    setRestored(true);
+  }, []);
+  useEffect(() => {
+    if (!restored) return;
+    const url = id ? `?p=${id}&tab=${encodeURIComponent(tab)}` : location.pathname;
+    history.replaceState(null, "", url);
+  }, [id, tab, restored]);
+  useEffect(() => {
+    if (!restored) return;
+    saveLocal(
+      "draft",
+      topic || referenceText || attachments.length
+        ? { topic, referenceText, attachments, strategy }
+        : undefined,
+    );
+  }, [topic, referenceText, attachments, strategy, restored]);
+  useEffect(() => {
+    if (id) setMessage(loadLocal<string>(`chat:${id}`) ?? "");
+  }, [id]);
   useEffect(() => {
     if (id) return;
     let alive = true;
@@ -268,6 +326,9 @@ export default function Page() {
       const data = await res.json();
       if (!res.ok) throw Error(data.error);
       setId(data.id);
+      setTopic("");
+      setReferenceText("");
+      setAttachments([]);
       setProject(data);
       setTab("overview");
       setProjects((p) => [data, ...p]);
@@ -306,6 +367,7 @@ export default function Page() {
           : current,
       );
       setMessage("");
+      saveLocal(`chat:${project.id}`, "");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -459,9 +521,9 @@ export default function Page() {
                 <span>더 깊은 이해까지.</span>
               </h1>
               <p className="intro">
-                GPT와 Claude가 독립적으로 조사하고, 서로의 주장을 검토합니다.
+                GPT와 Claude가 각자 초안을 쓰고, 하나로 합친 문서를 번갈아 다듬습니다.
                 <br />
-                질문을 남기면 조사부터 최종 보고서까지 자동으로 이어집니다.
+                질문을 남기면 초안부터 최종 보고서까지 자동으로 이어지고, 중간에 끼어들 수도 있습니다.
               </p>
               <form className="composer" onSubmit={submit}>
                 <MarkdownField
@@ -489,7 +551,7 @@ export default function Page() {
                   id="attachments"
                   type="file"
                   multiple
-                  accept=".txt,.md,.csv,.json,.log"
+                  accept=".pdf,.txt,.md,.csv,.json,.log"
                   disabled={reading || busy}
                   onChange={(e) => {
                     const files = Array.from(e.target.files ?? []);
@@ -498,12 +560,12 @@ export default function Page() {
                   }}
                 />
                 <p className="help">
-                  TXT · MD · CSV · JSON · LOG (UTF-8), 최대 5개. 파일당 40,000자
-                  / 160KB, 참고 자료 합계 60,000자. PDF·Word·한글은 내용을
-                  복사해 위에 넣어주세요. 구독 모드에서는 참고 내용이 두 모델에
-                  전달됩니다.
+                  PDF(20MB 이하, 텍스트가 있는 PDF) · TXT · MD · CSV · JSON · LOG,
+                  최대 5개. 파일당 40,000자, 참고 자료 합계 60,000자. PDF는 브라우저에서
+                  텍스트만 뽑아 쪽 번호와 함께 전달하고, 길면 앞부분만 넣습니다. 스캔
+                  이미지 PDF·Word·한글은 텍스트를 복사해 위에 넣어주세요.
                 </p>
-                {reading && <p role="status">파일 읽는 중…</p>}
+                {reading && <p role="status">파일 읽는 중… PDF는 쪽수에 따라 몇 초 걸릴 수 있습니다.</p>}
                 {attachments.map((file, index) => (
                   <details className="questionHistory" key={index}>
                     <summary>
@@ -646,9 +708,9 @@ export default function Page() {
               </div>
               <div className="process">
                 {[
-                  ["01", "독립 조사", "서로의 답을 보기 전, 각자의 관점으로"],
-                  ["02", "상호 검증", "비판과 반박으로 주장과 근거를 점검"],
-                  ["03", "연구 종합", "남은 질문까지 담은 최종 보고서"],
+                  ["01", "각자 초안", "서로의 글을 보기 전, 각자의 관점으로"],
+                  ["02", "합치고 번갈아 수정", "갈리는 부분은 ⚖️ 쟁점으로 남기고 근거로 다듬기"],
+                  ["03", "최종 보고서", "남은 쟁점과 질문까지 담아 정리"],
                 ].map(([n, title, desc]) => (
                   <div key={n}>
                     <span>{n}</span>
@@ -885,7 +947,10 @@ export default function Page() {
                         compact
                         value={message}
                         disabled={project.status !== "complete" || messageBusy}
-                        onChange={setMessage}
+                        onChange={(value) => {
+                          setMessage(value);
+                          saveLocal(`chat:${project.id}`, value);
+                        }}
                         minLength={1}
                         maxLength={10000}
                         required

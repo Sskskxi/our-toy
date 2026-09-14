@@ -266,7 +266,9 @@ test("reference files persist and seed each model session once", async () => {
       files: references.attachments,
     });
   assert.deepEqual(get(p.id)!.attachments, references.attachments);
-  assert.throws(() => create({...input, attachments: [{name: "file.pdf", text: "unsupported"}]}));
+  // PDFs arrive as text extracted in the browser; other binaries stay rejected.
+  assert.ok(create({...input, attachments: [{name: "file.pdf", text: "[1쪽]\n추출된 텍스트"}]}));
+  assert.throws(() => create({...input, attachments: [{name: "file.exe", text: "unsupported"}]}));
   assert.throws(() => create({...input, attachments: [{name: "file.txt", text: "a".repeat(40001)}]}));
   assert.throws(() => create({...input, referenceText: "a".repeat(20000), attachments: [{name: "a.txt", text: "a".repeat(40000)}, {name: "b.txt", text: "b"}]}));
 });

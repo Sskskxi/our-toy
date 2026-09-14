@@ -30,7 +30,7 @@ export const inputSchema = z
     models: modelsSchema.optional(),
     referenceText: z.string().max(20000).optional(),
     attachments: z.array(z.object({
-      name: z.string().min(1).max(200).regex(/\.(txt|md|csv|json|log)$/i),
+      name: z.string().min(1).max(200).regex(/\.(pdf|txt|md|csv|json|log)$/i),
       text: z.string().min(1).max(40000).refine(v => !v.includes("\u0000")),
     })).max(5).optional(),
     topic: z.string().trim().min(5).max(2000),

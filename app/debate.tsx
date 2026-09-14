@@ -64,6 +64,23 @@ export function SafeMarkdown({
   );
 }
 
+// Browser-only conveniences (drafts, last view). Research records themselves are
+// saved on the server in data/<id>.json; storage may be unavailable.
+export function loadLocal<T>(key: string): T | undefined {
+  try {
+    const raw = localStorage.getItem(`ourtoy:${key}`);
+    return raw ? (JSON.parse(raw) as T) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+export function saveLocal(key: string, value: unknown) {
+  try {
+    if (value === undefined || value === "") localStorage.removeItem(`ourtoy:${key}`);
+    else localStorage.setItem(`ourtoy:${key}`, JSON.stringify(value));
+  } catch {}
+}
+
 /** Re-render every second while something is running. */
 export function useNow(active: boolean) {
   const [now, setNow] = useState(() => Date.now());
@@ -890,7 +907,12 @@ export function InterventionBox({
   project: Project;
   onError: (message: string) => void;
 }) {
-  const [text, setText] = useState("");
+  const draftKey = `note:${project.id}`;
+  const [text, setTextState] = useState(() => loadLocal<string>(draftKey) ?? "");
+  const setText = (value: string) => {
+    setTextState(value);
+    saveLocal(draftKey, value);
+  };
   const [target, setTarget] = useState<"both" | Actor>("both");
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
