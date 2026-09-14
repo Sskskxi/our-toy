@@ -1932,3 +1932,41 @@ blockquote {
     justify-content: flex-start;
   }
 }
+
+/* ---------- Logged-in account ---------- */
+/* Account line on top, usage windows underneath, so long IDs never squeeze them. */
+.providerLimits {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+.providerName {
+  flex-basis: 100%;
+  min-width: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.providerName .accountId {
+  color: var(--ink);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.providerLimits .limitValue {
+  flex: 1;
+}
+.providerName + .limitValue {
+  padding-left: 0;
+  border-left: 0;
+}
+.planChip {
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 600;
+  background: var(--soft);
+  color: var(--teal);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 6px;
+  vertical-align: middle;
+}

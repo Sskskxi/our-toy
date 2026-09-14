@@ -84,3 +84,33 @@ test("account usage is cached for 60 seconds and provider errors are sanitized",
   assert.equal(codexCalls, 2);
   assert.equal(claudeCalls, 2);
 });
+
+test("logged-in account ID and plan are shown without leaking other auth fields", async () => {
+  const { parseCodexAccount, parseClaudeAuth } = await import("../lib/account-usage");
+  assert.deepEqual(
+    parseCodexAccount({
+      account: { type: "chatgpt", email: "me@example.com", planType: "plus", accessToken: "secret" },
+      requiresOpenaiAuth: true,
+    }),
+    { email: "me@example.com", plan: "plus", method: "ChatGPT" },
+  );
+  const claude = parseClaudeAuth(
+    JSON.stringify({
+      loggedIn: true,
+      authMethod: "claude.ai",
+      email: "me@example.com",
+      orgId: "org-123",
+      configDirectory: "/Users/me/.claude",
+      subscriptionType: "max",
+    }),
+  );
+  assert.deepEqual(claude, { email: "me@example.com", plan: "max", method: "claude.ai" });
+  assert.doesNotMatch(JSON.stringify(claude), /org-123|\.claude/);
+  assert.equal(parseClaudeAuth(JSON.stringify({ loggedIn: false, email: "x@y.z" })), undefined);
+  assert.equal(parseClaudeAuth("not json"), undefined);
+  // Values that are not plain IDs or plan names are dropped.
+  assert.deepEqual(
+    parseCodexAccount({ account: { email: "<img src=x>@a", planType: "plus<script>" } }),
+    undefined,
+  );
+});

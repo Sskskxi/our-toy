@@ -9,10 +9,18 @@ export type AccountUsageWindow = {
   resetLabel?: string;
 };
 
+export type AccountIdentity = {
+  /** Login ID shown in the UI (the account email). */
+  email?: string;
+  plan?: string;
+  method?: string;
+};
+
 export type ProviderAccountUsage = {
   status: "available" | "unavailable";
   short?: AccountUsageWindow;
   weekly?: AccountUsageWindow;
+  account?: AccountIdentity;
 };
 
 export type AccountUsage = {
@@ -46,6 +54,50 @@ function remaining(value: unknown, alreadyRemaining = false) {
     100,
     Math.max(0, Math.round(alreadyRemaining ? number : 100 - number)),
   );
+}
+
+// Only these display fields leave the server; tokens, org IDs and config paths
+// from the CLIs are dropped here.
+const EMAIL = /^[^\s@<>"]{1,64}@[^\s@<>"]{1,190}$/;
+const WORD = /^[A-Za-z0-9 ._+-]{1,40}$/;
+
+export function identity(fields: {
+  email?: unknown;
+  plan?: unknown;
+  method?: unknown;
+}): AccountIdentity | undefined {
+  const pick = (v: unknown, re: RegExp) =>
+    typeof v === "string" && re.test(v.trim()) ? v.trim() : undefined;
+  const result = {
+    email: pick(fields.email, EMAIL),
+    plan: pick(fields.plan, WORD),
+    method: pick(fields.method, WORD),
+  };
+  return result.email || result.plan ? result : undefined;
+}
+
+export function parseCodexAccount(payload: unknown) {
+  const account = record(record(payload)?.account);
+  return identity({
+    email: account?.email,
+    plan: account?.planType,
+    method: account?.type === "chatgpt" ? "ChatGPT" : account?.type,
+  });
+}
+
+export function parseClaudeAuth(raw: string) {
+  let status: JsonObject | undefined;
+  try {
+    status = record(JSON.parse(raw));
+  } catch {
+    return undefined;
+  }
+  if (!status?.loggedIn) return undefined;
+  return identity({
+    email: status.email,
+    plan: status.subscriptionType,
+    method: status.authMethod,
+  });
 }
 
 function codexWindow(
@@ -203,6 +255,12 @@ export function readCodexAccountUsage(): Promise<ProviderAccountUsage> {
     );
     const send = (message: JsonObject) =>
       child.stdin.write(`${JSON.stringify(message)}\n`);
+    let usage: ProviderAccountUsage | undefined;
+    let account: AccountIdentity | undefined;
+    let accountDone = false;
+    const maybeFinish = () => {
+      if (usage && accountDone) finish(undefined, { ...usage, account });
+    };
 
     child.on("error", () => finish(new Error("Codex app-server unavailable")));
     child.stdin.on("error", () =>
@@ -234,10 +292,18 @@ export function readCodexAccountUsage(): Promise<ProviderAccountUsage> {
               supportsLunaReserve: false,
             },
           });
+          send({ id: 3, method: "account/read", params: { refreshToken: false } });
         }
         if (message?.id === 2) {
-          if (message.error) finish(new Error("Codex usage request failed"));
-          else finish(undefined, parseCodexRateLimits(message.result));
+          if (message.error) return finish(new Error("Codex usage request failed"));
+          usage = parseCodexRateLimits(message.result);
+          maybeFinish();
+        }
+        if (message?.id === 3) {
+          // Account info is optional; a failure still shows usage.
+          if (!message.error) account = parseCodexAccount(message.result);
+          accountDone = true;
+          maybeFinish();
         }
       }
     });
@@ -255,7 +321,10 @@ export function readCodexAccountUsage(): Promise<ProviderAccountUsage> {
   });
 }
 
-export async function readClaudeAccountUsage() {
+export async function readClaudeAccountUsage(): Promise<ProviderAccountUsage> {
+  const auth = execute("claude", ["auth", "status"], os.tmpdir(), "", 15_000)
+    .then(parseClaudeAuth)
+    .catch(() => undefined);
   const raw = await execute(
     "claude",
     [
@@ -272,7 +341,7 @@ export async function readClaudeAccountUsage() {
     "",
     20_000,
   );
-  return parseClaudeUsage(raw);
+  return { ...parseClaudeUsage(raw), account: await auth };
 }
 
 export async function getAccountUsage(

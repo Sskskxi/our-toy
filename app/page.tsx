@@ -74,6 +74,11 @@ function LimitValue({ window }: { window?: AccountUsageWindow }) {
   );
 }
 
+// "plus" → "Plus 플랜", "max" → "Max 플랜"
+function planLabel(plan: string) {
+  return `${plan.charAt(0).toUpperCase()}${plan.slice(1)} 플랜`;
+}
+
 function ProviderLimits({
   name,
   usage,
@@ -88,10 +93,15 @@ function ProviderLimits({
           {name === "GPT" ? "G" : "C"}
         </span>
         <span>
-          <b>{name}</b>
-          <small>
-            {usage?.status === "unavailable" ? "조회 불가" : "구독 한도"}
+          <b>
+            {name}
+            {usage?.account?.plan && <em className="planChip">{planLabel(usage.account.plan)}</em>}
+          </b>
+          <small className="accountId" title={usage?.account?.email}>
+            {usage?.account?.email ??
+              (usage ? (usage.status === "unavailable" ? "로그인 확인 불가" : "계정 정보 없음") : "확인 중…")}
           </small>
+          {usage?.account?.method && <small>{usage.account.method} 로그인</small>}
         </span>
       </div>
       <LimitValue window={usage?.short} />

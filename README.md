@@ -130,7 +130,7 @@ npm run dev
 
 브라우저에서 **http://127.0.0.1:3000** 을 엽니다. `npm run dev`는 웹 화면과 연구 작업자(worker)를 함께 실행합니다. 끌 때는 터미널에서 `Ctrl+C`를 누릅니다.
 
-1. **첫 화면 상단**에서 GPT와 Claude 구독의 남은 사용량을 확인합니다. `확인 불가`로 나오면 3단계 로그인을 다시 확인하세요.
+1. **첫 화면 상단**에서 GPT와 Claude에 **로그인된 계정 ID(이메일)와 플랜**, 남은 사용량을 확인합니다. 의도한 계정이 아니면 3단계의 "계정 바꾸기"로 다시 로그인하세요. `로그인 확인 불가`로 나오면 3단계 로그인을 다시 확인하세요.
 2. **새 프로젝트**를 만들고 연구 주제를 입력합니다.
 3. 실행 방식을 고릅니다.
    - **구독 · Codex + Claude Code**: 실제 연구입니다. 구독 사용량을 씁니다.
@@ -309,7 +309,7 @@ DATA_DIR=./subscription-check-data node --import tsx scripts/check-subscription.
 
 ### 구독 사용량 표시
 
-첫 화면에서 GPT와 Claude 구독의 단기·주간 잔여율과 초기화 시간을 60초마다 갱신합니다. 프로젝트별 토큰이 아니라 계정 전체 한도입니다. 서버가 Codex app-server의 `account/rateLimits/read`와 Claude Code의 `/usage`를 읽고, 브라우저에는 잔여율과 초기화 정보만 보냅니다.
+첫 화면에서 GPT와 Claude 구독의 단기·주간 잔여율과 초기화 시간을 60초마다 갱신합니다. 프로젝트별 토큰이 아니라 계정 전체 한도입니다. 서버가 Codex app-server의 `account/rateLimits/read`·`account/read`와 Claude Code의 `/usage`·`claude auth status`를 읽고, 브라우저에는 계정 ID(이메일)·플랜·로그인 방식과 잔여율·초기화 정보만 보냅니다. 토큰, 조직 ID, 설정 경로는 보내지 않습니다.
 
 ### 저장과 복구
 
