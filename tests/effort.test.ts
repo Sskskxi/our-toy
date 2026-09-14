@@ -59,3 +59,21 @@ test("overload retries keep the same effort; limits are not retried", async () =
   await assert.rejects(callAdaptive(async () => { calls++; throw new CliFailure("codex", "limit"); }, "high", () => {}));
   assert.equal(calls, 1);
 });
+
+test("revisions merge by section: replace, append, key points, empty and full documents", async () => {
+  const { mergeSections } = await import("../lib/engine");
+  const doc = "### 핵심 요점\n- 옛 요점\n\n## 1. 배경\n옛 배경\n\n## 2. 방법\n옛 방법\n> ⚖️ 쟁점: A vs B";
+  const patched = mergeSections(doc, "## 2. 방법\n새 방법 (RFC 8693)\n\n## 3. 한계\n새 섹션");
+  assert.match(patched, /## 1\. 배경\n옛 배경/);
+  assert.match(patched, /## 2\. 방법\n새 방법 \(RFC 8693\)/);
+  assert.doesNotMatch(patched, /옛 방법|⚖️/);
+  assert.ok(patched.indexOf("## 3. 한계") > patched.indexOf("## 2. 방법"));
+  assert.match(patched, /### 핵심 요점\n- 옛 요점/);
+  const keys = mergeSections(doc, "### 핵심 요점\n- **새 요점** 제26조");
+  assert.match(keys, /새 요점/);
+  assert.doesNotMatch(keys, /옛 요점/);
+  assert.match(keys, /## 1\. 배경/);
+  assert.equal(mergeSections(doc, "  "), doc);
+  assert.equal(mergeSections(doc, doc), doc);
+  assert.match(mergeSections(doc, "##   1.  배경\n다른 공백"), /다른 공백/);
+});

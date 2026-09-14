@@ -530,6 +530,61 @@ export function editsOf(result: Result) {
   return result.answer.critiques.filter((c) => !c.claim.trim().startsWith(REPLY_PREFIX));
 }
 
+const KEY_POINTS = /^###\s*핵심\s*요점/;
+
+function splitDocument(md: string) {
+  const lines = md.split("\n");
+  const sections: { heading: string; body: string[] }[] = [];
+  const preamble: string[] = [];
+  for (const line of lines) {
+    if (/^##\s+\S/.test(line) && !/^###/.test(line)) sections.push({ heading: line.trim(), body: [] });
+    else if (sections.length) sections[sections.length - 1].body.push(line);
+    else preamble.push(line);
+  }
+  return { preamble, sections };
+}
+
+/** The '### 핵심 요점' block inside a preamble: [start, end) line indexes. */
+function keyPointsRange(preamble: string[]) {
+  const start = preamble.findIndex((l) => KEY_POINTS.test(l.trim()));
+  if (start < 0) return undefined;
+  let end = preamble.findIndex((l, i) => i > start && /^#{1,6}\s/.test(l.trim()));
+  if (end < 0) end = preamble.length;
+  return [start, end] as const;
+}
+
+const headingKey = (h: string) => h.replace(/^##\s+/, "").replace(/\s+/g, " ").trim().toLowerCase();
+
+/**
+ * Merge a partial revision into the shared document: sections are replaced by
+ * matching '## ' heading or appended, and a '### 핵심 요점' block replaces the
+ * document's. A full document merges to itself, so older answers still work.
+ */
+export function mergeSections(document: string, patch: string) {
+  if (!patch.trim()) return document;
+  const doc = splitDocument(document);
+  const next = splitDocument(patch);
+  const patchKeys = keyPointsRange(next.preamble);
+  if (patchKeys) {
+    const block = next.preamble.slice(patchKeys[0], patchKeys[1]);
+    const docKeys = keyPointsRange(doc.preamble);
+    if (docKeys) doc.preamble.splice(docKeys[0], docKeys[1] - docKeys[0], ...block);
+    else doc.preamble.unshift(...block, "");
+  }
+  for (const section of next.sections) {
+    const at = doc.sections.findIndex((s) => headingKey(s.heading) === headingKey(section.heading));
+    if (at >= 0) doc.sections[at] = section;
+    else doc.sections.push(section);
+  }
+  return [
+    ...doc.preamble,
+    ...doc.sections.flatMap((s) => [s.heading, ...s.body]),
+  ]
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function citedUrls(p: Project) {
   return p.claims.flatMap((c) =>
     c.sources.filter((s) => s.provenance === "provider-cited").map((s) => s.url),
@@ -606,8 +661,8 @@ async function coDraftRounds({ p, call, pair, checkpoint, record }: EngineTools)
           actors,
         })),
       });
-      // An empty revision means "no changes"; keep the current text.
-      const markdown = result.answer.summary.trim() ? result.answer.summary : document.markdown;
+      // Revisions return only changed sections; merge them by heading.
+      const markdown = mergeSections(document.markdown, result.answer.summary);
       document = addVersion(p, actor, "revise", round, {
         ...result,
         answer: { ...result.answer, summary: markdown },
