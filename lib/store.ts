@@ -118,6 +118,10 @@ export type ProjectBrief = Pick<
   queuedTurnId?: string;
   /** A follow-up answer is queued or running. */
   turnActive: boolean;
+  /** Next automatic resume of a failed run (ISO time), used by the worker scheduler. */
+  autoResumeAt?: string;
+  /** Earliest automatic retry of a failed follow-up turn (ISO time). */
+  turnRetryAt?: string;
   /** Changes whenever the project file changes; clients poll with it. */
   version: string;
 };
@@ -172,6 +176,11 @@ export function briefs(): ProjectBrief[] {
       turnActive: (p.conversation?.turns ?? []).some(
         (t) => t.status === "running" || t.status === "queued",
       ),
+      autoResumeAt: p.status === "failed" ? p.autoResume?.at : undefined,
+      turnRetryAt: (p.conversation?.turns ?? [])
+        .filter((t) => t.status === "failed" && t.autoRetry?.at)
+        .map((t) => t.autoRetry!.at)
+        .sort()[0],
       version: stamp,
     };
     briefCache.set(id, { stamp, brief });

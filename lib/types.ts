@@ -175,6 +175,8 @@ export type ConversationTurn = {
   synthesis?: Result;
   answer?: string;
   error?: string;
+  /** Automatic retry after a retryable failure; the worker requeues at `at`. */
+  autoRetry?: { attempts: number; at: string };
 };
 export type Conversation = {
   id: string;
@@ -210,6 +212,19 @@ export type Project = Omit<Input, "mode" | "strategy"> & {
   providerSessions: Partial<Record<Actor, string>>;
   conversation: Conversation;
   interventions?: Intervention[];
+  /** Set while a failed run waits to resume on its own; cleared on success or manual action. */
+  autoResume?: AutoResume;
+};
+export type AutoResume = {
+  reason: "transient" | "limit" | "restart";
+  /** Automatic resumes scheduled so far (limit: usage checks). */
+  attempts: number;
+  /** ISO time of the next try. */
+  at: string;
+  /** Provider whose usage limit was hit (reason "limit"). */
+  provider?: Actor;
+  /** One-line 해요체 note for the UI. */
+  note: string;
 };
 export type Request = {
   actor: Actor;
@@ -223,5 +238,7 @@ export type Request = {
   sessionId?: string;
   model?: string;
   effort?: string;
+  /** Multiplier for the per-stage CLI time limit: 1 first try, 1.5 on retries. */
+  timeoutScale?: number;
 };
 export type Provider = (request: Request) => Promise<Result>;

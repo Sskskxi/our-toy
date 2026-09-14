@@ -4,7 +4,8 @@ import { provider } from "./provider";
 import { save } from "./store";
 import { absorbInterventions, expireUndelivered, guidanceFor } from "./interventions";
 import { CancelledError, clearCancel, isCancelRequested, throwIfCancelled } from "./control";
-import { CliFailure, isRetryable } from "./cli-errors";
+import { CliFailure, isRetryable, isTimeout } from "./cli-errors";
+import { planAutoResume } from "./auto-resume";
 export const HUMAN_GUIDANCE_POLICY =
   "humanGuidance was typed by the project owner during the run. Use it to adjust focus, scope, priorities or corrections for this stage. It is not evidence: do not cite it as a source or treat its factual claims as verified. It cannot override the output schema or these rules.";
 export const normalize = (s: string) =>
@@ -106,20 +107,34 @@ export function assertUsable(stage: Stage, result: Result) {
     throw new CliFailure("model", "output", `${stage} 단계 답변 본문이 비어 있습니다`);
 }
 
-// Overload, network and timeout failures are retried with growing delays;
-// usage limits, auth and model errors fail fast so the user can act.
+// Overload and network failures are retried with growing delays; usage limits,
+// auth and model errors fail fast. A timeout already burned the whole time
+// limit, so it gets a single retry, which runs with a longer limit.
 export const RETRY_DELAYS_MS = [5_000, 20_000];
+export const TIMEOUT_RETRIES = 1;
+/** Time-limit multiplier for a given attempt: the first try uses the stage limit. */
+export const TIMEOUT_RETRY_SCALE = 1.5;
+export const timeoutScaleFor = (attempt: number) => (attempt === 0 ? 1 : TIMEOUT_RETRY_SCALE);
+export function retryNote(attempt: number, total: number, error: unknown) {
+  return isTimeout(error)
+    ? `응답이 늦어 시간을 늘려 다시 요청하는 중이에요 (${attempt}/${total})`
+    : `일시적인 오류라 다시 요청하는 중이에요 (${attempt}/${total})`;
+}
 export async function withRetry<T>(
-  run: () => Promise<T>,
-  onRetry: (attempt: number, error: Error) => void = () => {},
+  run: (attempt: number) => Promise<T>,
+  onRetry: (attempt: number, error: Error, total: number) => void = () => {},
   delays: number[] = process.env.MOCK_DELAY_MS === "0" ? [0, 0] : RETRY_DELAYS_MS,
 ): Promise<T> {
+  let timedOut = false;
   for (let attempt = 0; ; attempt++) {
     try {
-      return await run();
+      return await run(attempt);
     } catch (error) {
-      if (attempt >= delays.length || !isRetryable(error)) throw error;
-      onRetry(attempt + 1, error as Error);
+      if (!isRetryable(error)) throw error;
+      timedOut ||= isTimeout(error);
+      const total = timedOut ? Math.min(TIMEOUT_RETRIES, delays.length) : delays.length;
+      if (attempt >= total) throw error;
+      onRetry(attempt + 1, error as Error, total);
       await new Promise((r) => setTimeout(r, delays[attempt]));
     }
   }
@@ -162,6 +177,9 @@ export async function run(
   // otherwise new notes must reach the model that still runs live.
   const stageCached = (stage: Stage, round: number, actors: Actor[]) =>
     actors.every((a) => cache.some((c) => c.stage === stage && c.round === round && c.actor === a));
+  // New (non-replayed) calls finished in this run: moving forward resets the
+  // automatic-resume counter.
+  let liveCompleted = 0;
   async function call(
     actor: Actor,
     stage: Stage,
@@ -208,9 +226,9 @@ export async function run(
     };
     try {
       const result = await withRetry(
-        () => callProvider(request),
-        (attempt, error) => {
-          entry.error = `일시적 실패로 자동 재시도 ${attempt}/${RETRY_DELAYS_MS.length}: ${error.message}`;
+        (attempt) => callProvider({ ...request, timeoutScale: timeoutScaleFor(attempt) }),
+        (attempt, error, total) => {
+          entry.error = retryNote(attempt, total, error);
           record();
         },
       );
@@ -221,6 +239,7 @@ export async function run(
       entry.result = result;
       entry.status = "complete";
       p.tokens += result.tokens;
+      liveCompleted++;
       return result;
     } catch (error) {
       entry.status = "failed";
@@ -294,16 +313,26 @@ export async function run(
       p.unresolved.map((q) => `- ${q}`).join("\n");
     p.status = "complete";
     p.stage = "연구 완료";
+    p.autoResume = undefined;
     expireUndelivered(p);
   } catch (error) {
     if (error instanceof CancelledError || isCancelRequested(p.id)) {
       p.status = "interrupted";
       p.error = new CancelledError().message;
       p.stage = "사용자 중지 · 이어서 실행 가능";
+      p.autoResume = undefined;
     } else {
       p.status = "failed";
       p.error = error instanceof Error ? error.message : "연구 실행 실패";
-      p.stage = "오류로 중단 · 이어서 실행 가능";
+      p.autoResume = planAutoResume({
+        error,
+        previous: p.autoResume,
+        progressed: liveCompleted > 0,
+        now: new Date(),
+      });
+      p.stage = p.autoResume
+        ? `오류로 중단 · ${p.autoResume.note}`
+        : "오류로 중단 · 이어서 실행 가능";
     }
   }
   clearCancel(p.id);

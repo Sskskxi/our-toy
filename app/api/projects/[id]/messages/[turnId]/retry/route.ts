@@ -27,6 +27,8 @@ export async function POST(
       );
     turn.status = "queued";
     turn.error = undefined;
+    // A manual retry starts a fresh automatic-retry budget.
+    turn.autoRetry = undefined;
     turn.updatedAt = new Date().toISOString();
     save(p);
     return NextResponse.json(turn, { status: 202 });

@@ -11,14 +11,14 @@ export type FailureKind =
   | "unknown";
 
 const HINTS: Record<FailureKind, string> = {
-  limit: "구독 사용량 제한에 도달했습니다. 한도가 초기화된 뒤 이어서 실행하세요.",
-  auth: "로그인이 만료되었거나 권한이 없습니다. 터미널에서 다시 로그인하세요.",
-  model: "선택한 모델을 이 계정에서 쓸 수 없습니다. 모델 선택을 바꿔 보세요.",
-  transient: "서비스 과부하나 네트워크 문제로 잠시 실패했습니다.",
-  timeout: "응답 시간 제한을 넘었습니다.",
-  cli: "CLI가 실행 옵션을 거부했습니다. Codex/Claude Code를 최신 버전으로 업데이트하세요.",
-  output: "모델 응답을 해석하지 못했습니다.",
-  unknown: "CLI 실행이 실패했습니다.",
+  limit: "구독 사용량 한도에 도달했어요. 한도가 풀리면 이어서 할 수 있어요.",
+  auth: "로그인이 풀렸어요. 홈 화면 계정 카드에서 다시 로그인한 뒤 이어서 실행해 주세요.",
+  model: "선택한 모델을 이 계정에서 쓸 수 없어요. 모델이나 추론 수준을 바꾼 뒤 이어서 실행해 주세요.",
+  transient: "서비스 과부하나 네트워크 문제로 잠시 실패했어요.",
+  timeout: "응답 시간 제한을 넘었어요.",
+  cli: "CLI가 실행 옵션을 거부했어요. Codex/Claude Code를 최신 버전으로 업데이트한 뒤 이어서 실행해 주세요.",
+  output: "모델 응답을 해석하지 못했어요. 이어서 실행하면 그 단계부터 다시 요청해요.",
+  unknown: "CLI 실행이 실패했어요. 잠시 뒤 이어서 실행해 주세요.",
 };
 
 export class CliFailure extends Error {
@@ -126,14 +126,31 @@ export function isRetryable(error: unknown) {
   return error instanceof Error && /시간 제한|네트워크 오류|과부하/.test(error.message);
 }
 
-/** Per-stage CLI time limits in ms; web-search stages need the most room. */
+/** A time-limit failure: the call already burned its whole budget. */
+export function isTimeout(error: unknown) {
+  if (error instanceof CliFailure) return error.kind === "timeout";
+  return error instanceof Error && /시간 제한/.test(error.message);
+}
+
+/**
+ * Per-stage CLI time limits in ms; web-search stages need the most room.
+ * `scale` stretches the limit for retries after a timeout (the
+ * CLI_TIMEOUT_SECONDS override is scaled too).
+ */
 export function stageTimeout(
   stage: string,
   env: Record<string, string | undefined> = process.env,
+  scale = 1,
 ) {
+  const factor = Number.isFinite(scale) && scale > 0 ? scale : 1;
   const override = Number(env.CLI_TIMEOUT_SECONDS);
-  if (Number.isFinite(override) && override >= 60) return override * 1000;
-  if (["research", "draft", "revise", "explore"].includes(stage)) return 600_000;
-  if (["merge", "synthesis"].includes(stage)) return 420_000;
-  return 300_000;
+  const base =
+    Number.isFinite(override) && override >= 60
+      ? override * 1000
+      : ["research", "draft", "revise", "explore"].includes(stage)
+        ? 600_000
+        : ["merge", "synthesis"].includes(stage)
+          ? 420_000
+          : 300_000;
+  return Math.round(base * factor);
 }

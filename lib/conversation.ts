@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { messageSchema, type Actor, type MessageInput, type Project, type Provider, type Result, type Stage } from "./types";
 import { provider } from "./provider";
-import { referenceContext, withRetry } from "./engine";
+import { referenceContext, retryNote, timeoutScaleFor, withRetry } from "./engine";
+import { planTurnRetry, TURN_RETRIES } from "./auto-resume";
 import { get, save } from "./store";
 import { CancelledError, clearCancel, isCancelRequested, throwIfCancelled } from "./control";
 
@@ -126,7 +127,7 @@ export async function runConversation(
     p.calls.push(entry);
     record();
     try {
-      const result = await withRetry(() => callProvider({
+      const result = await withRetry((attempt) => callProvider({
         actor,
         stage,
         round: p.rounds.length,
@@ -137,8 +138,9 @@ export async function runConversation(
         effort: activeTurn.models?.[actor]?.effort ?? p.models?.[actor]?.effort,
         mode: p.mode,
         projectId: p.id,
-      }), (attempt, error) => {
-        entry.error = `일시적 실패로 자동 재시도 ${attempt}: ${error.message}`;
+        timeoutScale: timeoutScaleFor(attempt),
+      }), (attempt, error, total) => {
+        entry.error = retryNote(attempt, total, error);
         record();
       });
       entry.error = undefined;
@@ -201,6 +203,7 @@ export async function runConversation(
       throw new Error("후속 대화 답변이 비어 있습니다.");
     }
     turn.status = "complete";
+    turn.autoRetry = undefined;
     refreshMemory(p);
     p.stage = "연구 완료 · 대화 가능";
   } catch (error) {
@@ -211,7 +214,12 @@ export async function runConversation(
       : error instanceof Error
         ? error.message
         : "후속 대화 실행 실패";
-    p.stage = cancelled ? "대화 중지 · 재시도 가능" : "대화 응답 오류 · 재시도 가능";
+    turn.autoRetry = cancelled ? undefined : planTurnRetry(turn, error, new Date());
+    p.stage = cancelled
+      ? "대화 중지 · 재시도 가능"
+      : turn.autoRetry
+        ? `대화 응답 오류 · 잠시 뒤 자동으로 다시 시도해요 (${turn.autoRetry.attempts}/${TURN_RETRIES})`
+        : "대화 응답 오류 · 재시도 가능";
   }
   clearCancel(p.id);
   record();

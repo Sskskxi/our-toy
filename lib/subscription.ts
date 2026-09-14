@@ -275,7 +275,7 @@ export async function subscription(
         output,
         sessionId: previousSession,
       });
-      const raw = await execute("codex", args, cwd, prompt, stageTimeout(r.stage));
+      const raw = await execute("codex", args, cwd, prompt, stageTimeout(r.stage, process.env, r.timeoutScale));
       const events = raw.split("\n").flatMap((line) => {
         try {
           return [JSON.parse(line)];
@@ -317,7 +317,7 @@ export async function subscription(
         resume: Boolean(previousSession),
       });
       result = decodeClaude(
-        await execute("claude", args, cwd, prompt, stageTimeout(r.stage)),
+        await execute("claude", args, cwd, prompt, stageTimeout(r.stage, process.env, r.timeoutScale)),
         model,
       );
       result.sessionId = previousSession;

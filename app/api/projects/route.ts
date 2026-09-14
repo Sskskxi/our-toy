@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
   if (unsafe) return unsafe;
   return NextResponse.json({
     workerAlive: workerAlive(),
-    projects: briefs().map(({ id, topic, title, status, mode, createdAt, updatedAt, stage, queuedTurnAt, turnActive }) => ({
+    projects: briefs().map(({ id, topic, title, status, mode, createdAt, updatedAt, stage, queuedTurnAt, turnActive, autoResumeAt }) => ({
       id,
       topic,
       title,
@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
       mode,
       createdAt,
       stage,
+      autoResumeAt,
       busy: status === "running" || status === "queued" || Boolean(queuedTurnAt) || turnActive,
     })),
     defaultMode: process.env.RESEARCH_MODE === "mock" ? "mock" : "subscription",

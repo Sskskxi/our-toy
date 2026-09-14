@@ -50,6 +50,8 @@ export async function POST(
     p.status = "queued";
     p.stage = "이어서 실행 대기";
     p.error = undefined;
+    // A manual resume replaces any scheduled automatic one.
+    p.autoResume = undefined;
     save(p);
     return NextResponse.json({ id: p.id, status: p.status }, { status: 202 });
   } catch {

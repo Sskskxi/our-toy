@@ -6,6 +6,9 @@ const { stopSubscriptionCalls } = await import("../lib/subscription");
 const { clearCancel, isCancelRequested, writeHeartbeat } = await import("../lib/control");
 const { run } = await import("../lib/engine");
 const { runConversation } = await import("../lib/conversation");
+const { planRestartResume } = await import("../lib/auto-resume");
+const { tickAutoResume } = await import("../lib/auto-resume-scheduler");
+const { getAccountUsage } = await import("../lib/account-usage");
 const fs = await import("node:fs");
 const path = await import("node:path");
 const lock = path.join(dataDir(), "worker.lock");
@@ -48,36 +51,53 @@ process.on("SIGINT", () => {
   stopSubscriptionCalls();
   process.exit(0);
 });
+// Work cut by a restart continues on its own: completed calls are replayed and
+// the running ones are marked failed so they are called again.
+const RESTART_TURN_ATTEMPTS = 5;
 for (const p of list()) {
-  if (p.status === "running") {
-    p.status = "interrupted";
-    p.stage = "서버 재시작으로 중단 · 이어서 실행 가능";
-    p.error =
-      "서버가 재시작되어 연구가 멈췄습니다. '이어서 실행'을 누르면 완료된 단계는 다시 호출하지 않고 멈춘 단계부터 계속합니다.";
+  const markRunningCallsFailed = () => {
     for (const c of p.calls)
       if (c.status === "running") {
         c.status = "failed";
         c.error = "Worker interrupted";
         c.finishedAt = new Date().toISOString();
       }
+  };
+  if (p.status === "running") {
+    const plan = p.mode === "live" ? undefined : planRestartResume(p.autoResume, p.calls, new Date());
+    if (plan) {
+      p.status = "queued";
+      p.stage = plan.note;
+      p.error = undefined;
+      p.autoResume = plan;
+    } else {
+      // Repeated restarts without progress: leave it to the user.
+      p.status = "interrupted";
+      p.stage = "서버 재시작으로 중단 · 이어서 실행 가능";
+      p.error =
+        "서버가 여러 번 다시 켜지는 동안 연구가 앞으로 나아가지 못했어요. '이어서 실행'을 누르면 완료된 단계는 다시 호출하지 않고 멈춘 단계부터 계속해요.";
+      p.autoResume = undefined;
+    }
+    markRunningCallsFailed();
     save(p);
   }
   let changed = false;
   for (const turn of p.conversation?.turns ?? [])
     if (turn.status === "running") {
-      turn.status = "failed";
-      turn.error = "서버가 재시작되어 답변이 중단되었습니다. 다시 시도할 수 있습니다.";
+      if (turn.attempts < RESTART_TURN_ATTEMPTS) {
+        turn.status = "queued";
+        turn.error = undefined;
+      } else {
+        turn.status = "failed";
+        turn.error = "서버가 다시 켜지며 답변이 여러 번 중단됐어요. 다시 시도해 주세요.";
+        turn.autoRetry = undefined;
+      }
       turn.updatedAt = new Date().toISOString();
       changed = true;
     }
   if (changed) {
-    p.stage = "대화 응답 중단 · 재시도 가능";
-    for (const c of p.calls)
-      if (c.status === "running") {
-        c.status = "failed";
-        c.error = "Worker interrupted";
-        c.finishedAt = new Date().toISOString();
-      }
+    p.stage = "서버가 다시 켜져 대화 응답을 자동으로 다시 요청해요";
+    markRunningCallsFailed();
     save(p);
   }
 }
@@ -92,7 +112,29 @@ setInterval(() => {
   if (current && isCancelRequested(current)) stopSubscriptionCalls();
 }, 1000).unref();
 
+// Automatic resumes and turn retries are checked at most every 30 seconds.
+const SCHEDULE_MS = 30_000;
+const unavailableUsage = new Map<string, number>();
+let lastSchedule = 0;
+async function scheduleAutoResumes() {
+  if (Date.now() - lastSchedule < SCHEDULE_MS) return;
+  lastSchedule = Date.now();
+  try {
+    const resumed = await tickAutoResume({
+      briefs,
+      get,
+      save,
+      usage: () => getAccountUsage(),
+      unavailable: unavailableUsage,
+    });
+    if (resumed.length) console.log(`[worker] 자동으로 이어서 실행: ${resumed.join(", ")}`);
+  } catch (error) {
+    console.error("[worker] 자동 재개 확인 중 오류:", error instanceof Error ? error.message : error);
+  }
+}
+
 while (true) {
+  await scheduleAutoResumes();
   try {
     // Scan cheap briefs; load a full project only when there is work for it.
     const projects = briefs();

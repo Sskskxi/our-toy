@@ -11,7 +11,7 @@ import {
   stageTimeout,
 } from "../lib/cli-errors";
 import { decodeClaude } from "../lib/subscription";
-import { withRetry } from "../lib/engine";
+import { retryNote, withRetry } from "../lib/engine";
 
 const codexEvents = (...events: object[]) => events.map((e) => JSON.stringify(e)).join("\n");
 
@@ -79,6 +79,62 @@ test("stage time limits give web-search stages more room", () => {
   assert.equal(stageTimeout("merge", {}), 420_000);
   assert.equal(stageTimeout("plan", {}), 300_000);
   assert.equal(stageTimeout("plan", { CLI_TIMEOUT_SECONDS: "900" }), 900_000);
+});
+
+test("retries after a timeout get a longer time limit, override included", () => {
+  assert.equal(stageTimeout("draft", {}, 1.5), 900_000);
+  assert.equal(stageTimeout("merge", {}, 1.5), 630_000);
+  assert.equal(stageTimeout("plan", { CLI_TIMEOUT_SECONDS: "600" }, 1.5), 900_000);
+  assert.equal(stageTimeout("plan", {}, Number.NaN), 300_000);
+});
+
+test("a timeout gets one retry with a scaled limit; transient failures keep two", async () => {
+  let calls = 0;
+  const attempts: number[] = [];
+  const notes: string[] = [];
+  await assert.rejects(
+    withRetry(
+      async (attempt) => {
+        attempts.push(attempt);
+        calls++;
+        throw new CliFailure("claude", "timeout", "600초 초과");
+      },
+      (attempt, error, total) => notes.push(retryNote(attempt, total, error)),
+      [0, 0],
+    ),
+    (e: unknown) => e instanceof CliFailure && e.kind === "timeout",
+  );
+  assert.equal(calls, 2);
+  assert.deepEqual(attempts, [0, 1]);
+  assert.deepEqual(notes, ["응답이 늦어 시간을 늘려 다시 요청하는 중이에요 (1/1)"]);
+
+  // A transient failure followed by a timeout stops at the timeout budget.
+  let mixed = 0;
+  await assert.rejects(
+    withRetry(async () => {
+      mixed++;
+      throw mixed === 1 ? new CliFailure("codex", "transient", "529") : new CliFailure("codex", "timeout");
+    }, () => {}, [0, 0]),
+  );
+  assert.equal(mixed, 2);
+
+  const transientNotes: string[] = [];
+  let transient = 0;
+  await assert.rejects(
+    withRetry(
+      async () => {
+        transient++;
+        throw new CliFailure("codex", "transient", "503");
+      },
+      (attempt, error, total) => transientNotes.push(retryNote(attempt, total, error)),
+      [0, 0],
+    ),
+  );
+  assert.equal(transient, 3);
+  assert.deepEqual(transientNotes, [
+    "일시적인 오류라 다시 요청하는 중이에요 (1/2)",
+    "일시적인 오류라 다시 요청하는 중이에요 (2/2)",
+  ]);
 });
 
 test("transient failures retry with backoff; limits and auth fail immediately", async () => {
