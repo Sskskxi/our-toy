@@ -69,7 +69,7 @@ test("full flow: independent parallel research, critique routing, evidence queue
     p.claims.every((c) => c.sources.every((s) => s.provenance === "mock")),
   );
   assert.match(get(p.id)!.report!, /MOCK/);
-  assert.equal(p.calls.length, 26);
+  assert.equal(p.calls.length, 27);
   assert.ok(p.calls.every((c) => c.status === "complete"));
 });
 test("max rounds always bounds execution", async () => {
@@ -77,7 +77,7 @@ test("max rounds always bounds execution", async () => {
   await run(p, mock);
   assert.equal(p.rounds.length, 1);
   assert.equal(p.stopReason, "최대 라운드 도달");
-  assert.equal(p.calls.length, 8);
+  assert.equal(p.calls.length, 9);
   assert.ok(p.unresolved.length);
 });
 test("one provider fails: wait for peer, persist failure, never synthesize", async () => {
@@ -252,7 +252,7 @@ test("references go to every evidence stage without resuming sessions", async ()
   const seen: Request[] = [];
   await run(p, async r => { seen.push(r); return mock(r); }, () => save(p));
   assert.equal(p.status, "complete");
-  assert.equal(seen.length, 8);
+  assert.equal(seen.length, 9);
   assert.ok(seen.every((r) => r.sessionId === undefined));
   const withReferences = seen.filter((r) =>
     Boolean((r.context as { userReferences?: unknown }).userReferences),

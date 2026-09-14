@@ -130,6 +130,15 @@ export async function mock(request: Request): Promise<Result> {
     answer.unresolved = round >= 2 ? [] : [gap];
     answer.summary = `### 핵심 요점\n- **${actor} ${round}라운드 탐색**: 새 자료 1건\n\n### 보완한 부분\n- 이전 차례의 빈틈을 채웠습니다.\n\n### 제외한 자료\n${answer.critiques.length ? "- 범위 밖 자료 1건" : "- 없음"}\n\n### 더 파고든 흐름\n- 비용 대비 효과\n\n### 다음 탐색 제안\n${answer.questions.map((q) => `- ${q}`).join("\n") || "- 더 파고들 흐름 없음"}`;
   }
+  if (stage === "contradictions") {
+    answer.critiques = [
+      {
+        claim: "C-mock ↔ C-mock2: 무엇을 먼저 할지 엇갈려요",
+        objection: "한쪽은 지표 정의를, 다른 쪽은 실패 조건 평가를 먼저 하라고 해요. 실제 사례 자료로 순서를 정해야 해요.",
+      },
+    ];
+    answer.summary = "### 핵심 요점\n- **모순 1건**: 우선순위 판단이 엇갈려요.";
+  }
   if (stage === "conversation") {
     answer.summary = `### 핵심 요점\n- **${actor} 답변**: 저장된 연구 맥락을 바탕으로 검토했습니다.\n- **근거 한계**: 합성 데이터라 실제 사실 확인은 없습니다.\n\n### 받은 질문\n> ${(questions[0] ?? "후속 질문").split("\n")[0]}`;
   }

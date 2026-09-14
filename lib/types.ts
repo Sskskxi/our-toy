@@ -67,6 +67,7 @@ export type Stage =
   | "research"
   | "critique"
   | "rebuttal"
+  | "contradictions"
   | "synthesis"
   | "conversation"
   | "conversation-synthesis";
@@ -119,6 +120,14 @@ export type Result = {
 };
 export type Evidence = Answer["claims"][number]["sources"][number] & {
   provenance: "mock" | "provider-cited" | "unverified";
+  /** Result of fetching the page and comparing it with the claim. */
+  check?: {
+    status: "match" | "partial" | "mismatch" | "unreachable" | "skipped";
+    checkedAt: string;
+    note: string;
+  };
+  /** 1 = law/government/standard/scholarly, 2 = institutional or docs, 3 = other. */
+  grade?: 1 | 2 | 3;
 };
 export type Claim = {
   id: string;
@@ -129,7 +138,10 @@ export type Claim = {
   status: "needs-evidence" | "contested" | "source-linked";
   objections: string[];
   rounds: number[];
+  /** Best (lowest) grade among its sources. */
+  grade?: 1 | 2 | 3;
 };
+export type Contradiction = { between: string; reason: string; actor: Actor };
 export type Call = {
   actor: Actor;
   stage: Stage;
@@ -199,6 +211,8 @@ export type Project = Omit<Input, "mode" | "strategy"> & {
   documents?: DocumentVersion[];
   /** Research relay: claims or sources a model dropped as off-topic or weak. */
   exclusions?: Exclusion[];
+  /** Claim pairs that contradict each other, found before the report. */
+  contradictions?: Contradiction[];
   /** Research relay: promising directions proposed for the next explorer. */
   threads?: string[];
   id: string;

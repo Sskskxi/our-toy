@@ -3,6 +3,8 @@ import type { Actor, Claim, DocumentVersion, Project, Provider, Result, Round, S
 import { provider } from "./provider";
 import { save } from "./store";
 import { absorbInterventions, expireUndelivered, guidanceFor } from "./interventions";
+import { fetchSource } from "./fetch-source";
+import { gradeSource, verifyClaims, type Fetcher } from "./verify";
 import { CancelledError, clearCancel, isCancelRequested, throwIfCancelled } from "./control";
 import { CliFailure, isRetryable, isTimeout, isVolumeFailure } from "./cli-errors";
 import { modelDefaults } from "./subscription";
@@ -136,6 +138,7 @@ const CAPPED_STAGES: Stage[] = [
   "rebuttal",
   "conversation",
   "conversation-synthesis",
+  "contradictions",
 ];
 export function effortFor(
   stage: Stage,
@@ -226,16 +229,23 @@ export function prepareResume(p: Project) {
   p.documents = [];
   p.exclusions = [];
   p.threads = [];
+  p.contradictions = [];
   p.stopReason = undefined;
   p.report = undefined;
   p.error = undefined;
   return previous;
 }
 
+export type RunOptions = {
+  /** Page fetcher for citation checks; defaults to the SSRF-safe fetchSource. */
+  fetcher?: Fetcher;
+};
+
 export async function run(
   p: Project,
   callProvider: Provider = provider,
   persist: (p: Project) => void = save,
+  options: RunOptions = {},
 ) {
   const record = () => persist(p);
   const cache = p.calls.length ? prepareResume(p) : [];
@@ -371,6 +381,31 @@ export async function run(
         : p.strategy === "relay"
           ? await relayRounds(tools)
           : await debateRounds(tools);
+    // Check cited pages against the claims (real runs only), grade sources,
+    // then look for claims that contradict each other before writing.
+    if (p.mode !== "mock" && process.env.VERIFY_SOURCES !== "off") {
+      p.stage = "출처 원문 확인 중";
+      record();
+      await verifyClaims(p.claims, options.fetcher ?? ((url) => fetchSource(url)));
+    } else gradeClaims(p.claims);
+    record();
+    if (p.claims.length >= 2) {
+      checkpoint("contradictions", p.rounds.length, "주장 간 모순 확인", ["GPT"]);
+      const found = await call("GPT", "contradictions", p.rounds.length, p.questions, {
+        ledger: p.claims.map(({ id, statement, confidence, sources }) => ({
+          id,
+          statement,
+          confidence,
+          sources: sources.map((s) => ({ title: s.title, grade: s.grade, check: s.check?.status })),
+        })),
+      });
+      p.contradictions = found.answer.critiques.map((c) => ({
+        between: c.claim,
+        reason: c.objection,
+        actor: "GPT" as const,
+      }));
+      record();
+    }
     checkpoint("synthesis", p.rounds.length, "최종 보고서 종합", [final.synthesizer]);
     const report = await call(
       final.synthesizer,
@@ -384,6 +419,8 @@ export async function run(
         rounds: p.rounds,
         ...(final.document ? { sharedDocument: final.document } : {}),
         ...(p.strategy === "relay" ? { researchMap: researchMap(p) } : {}),
+        contradictions: p.contradictions ?? [],
+        reportTemplate: p.reportTemplate ?? "default",
       },
     );
     if (!report.answer.summary.trim())
@@ -391,7 +428,8 @@ export async function run(
     p.report =
       report.answer.summary +
       `\n\n---\n\n## 실행 기록\n- 모드: ${p.mode}\n- 협업 방식: ${p.strategy === "codraft" ? "공동 초안" : p.strategy === "relay" ? "탐색 릴레이" : "토론"}\n- 종료: ${p.stopReason}\n- 라운드: ${p.rounds.length}\n- 미해결 질문: ${p.unresolved.length}\n\n` +
-      p.unresolved.map((q) => `- ${q}`).join("\n");
+      p.unresolved.map((q) => `- ${q}`).join("\n") +
+      referencesAppendix(p);
     p.status = "complete";
     p.stage = "연구 완료";
     p.autoResume = undefined;
@@ -811,4 +849,38 @@ async function relayRounds({ p, call, checkpoint, record }: EngineTools): Promis
     if (p.stopReason) break;
   }
   return { synthesizer: "GPT" };
+}
+
+function gradeClaims(claims: Claim[]) {
+  for (const claim of claims) {
+    for (const source of claim.sources) source.grade ??= gradeSource(source.url, source.title);
+    claim.grade = claim.sources.length
+      ? (Math.min(...claim.sources.map((s) => s.grade ?? 3)) as 1 | 2 | 3)
+      : undefined;
+  }
+}
+
+const CHECK_LABEL: Record<string, string> = {
+  match: "원문 일치",
+  partial: "원문 일부 일치",
+  mismatch: "원문 불일치",
+  unreachable: "접근 불가",
+  skipped: "자동 확인 안 함",
+};
+const GRADE_LABEL = { 1: "1차 자료", 2: "기관 자료", 3: "기타 자료" } as const;
+
+/** Numbered references with grade and check status, appended to the report. */
+export function referencesAppendix(p: Project) {
+  const seen = new Map<string, { title: string; grade?: 1 | 2 | 3; check?: string }>();
+  for (const claim of p.claims)
+    for (const s of claim.sources)
+      if (!seen.has(s.url)) seen.set(s.url, { title: s.title, grade: s.grade, check: s.check?.status });
+  if (!seen.size) return "";
+  const lines = [...seen.entries()].map(([url, s], i) => {
+    const tags = [s.grade ? GRADE_LABEL[s.grade] : "", s.check ? CHECK_LABEL[s.check] : ""]
+      .filter(Boolean)
+      .join(" · ");
+    return `${i + 1}. ${s.title || url} — <${url}>${tags ? ` (${tags})` : ""}`;
+  });
+  return `\n\n## 참고문헌\n${lines.join("\n")}`;
 }

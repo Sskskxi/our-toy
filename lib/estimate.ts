@@ -17,6 +17,7 @@ const PLANS: Record<Strategy, { once: Planned[]; round: Planned[] }> = {
       { stage: "plan", actor: "GPT" },
       ...both("draft"),
       { stage: "merge", actor: "GPT" },
+      { stage: "contradictions", actor: "GPT" },
       { stage: "synthesis", actor: "Claude" },
     ],
     round: both("revise"),
@@ -24,6 +25,7 @@ const PLANS: Record<Strategy, { once: Planned[]; round: Planned[] }> = {
   relay: {
     once: [
       { stage: "plan", actor: "GPT" },
+      { stage: "contradictions", actor: "GPT" },
       { stage: "synthesis", actor: "GPT" },
     ],
     round: both("explore"),
@@ -31,6 +33,7 @@ const PLANS: Record<Strategy, { once: Planned[]; round: Planned[] }> = {
   debate: {
     once: [
       { stage: "plan", actor: "GPT" },
+      { stage: "contradictions", actor: "GPT" },
       { stage: "synthesis", actor: "GPT" },
     ],
     round: [...both("research"), ...both("critique"), ...both("rebuttal")],
@@ -46,6 +49,7 @@ const DEFAULT_SECONDS: Partial<Record<Stage, number>> = {
   research: 150,
   critique: 60,
   rebuttal: 80,
+  contradictions: 60,
   synthesis: 180,
 };
 const DEFAULT_TOKENS = 40_000;
