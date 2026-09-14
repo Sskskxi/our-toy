@@ -53,11 +53,20 @@ export function writeHeartbeat(current?: string) {
   } catch {}
 }
 
-export function workerAlive(maxAgeMs = 20_000) {
+/**
+ * true/false from a heartbeat, or undefined when no heartbeat was ever written
+ * (e.g. a worker started before heartbeats existed): unknown is not "down".
+ */
+export function workerAlive(maxAgeMs = 20_000): boolean | undefined {
+  let raw: string;
   try {
-    const { at } = JSON.parse(fs.readFileSync(heartbeatFile(), "utf8"));
-    return Date.now() - Date.parse(at) < maxAgeMs;
+    raw = fs.readFileSync(heartbeatFile(), "utf8");
   } catch {
-    return false;
+    return undefined;
+  }
+  try {
+    return Date.now() - Date.parse(JSON.parse(raw).at) < maxAgeMs;
+  } catch {
+    return undefined;
   }
 }

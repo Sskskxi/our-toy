@@ -19,6 +19,7 @@ export const stageLabels: Record<string, string> = {
   draft: "각자 초안",
   merge: "초안 합치기",
   revise: "공동 문서 수정",
+  explore: "탐색 릴레이",
   research: "독립 조사",
   critique: "상호비판",
   rebuttal: "반박 · 수정",
@@ -31,6 +32,7 @@ const stageHints: Record<string, string> = {
   draft: "서로의 글을 보지 않고 각자 전체 초안을 씁니다.",
   merge: "두 초안을 하나로 합치고, 갈리는 부분은 ⚖️ 쟁점으로 남깁니다.",
   revise: "상대가 고친 최신 문서를 이어받아 근거와 함께 수정합니다.",
+  explore: "앞 차례 결과에서 맞지 않는 자료는 빼고, 빈틈을 채우고, 유망한 흐름을 더 파고듭니다.",
   research: "서로의 답을 보지 않고 각자 조사합니다.",
   critique: "상대의 주장에서 약한 근거와 빈틈을 찾습니다.",
   rebuttal: "받은 비판에 답하고 주장을 고치거나 거둡니다.",
@@ -120,6 +122,78 @@ export function Elapsed({
     <span className={`elapsed ${running ? "live" : ""}`} title={running ? "경과 시간" : "걸린 시간"}>
       {running && <i aria-hidden>●</i>}({formatElapsed(to - Date.parse(start))})
     </span>
+  );
+}
+
+/** Copies text and briefly confirms. */
+export function CopyButton({ text, label = "복사" }: { text: string; label?: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      type="button"
+      className="copyButton"
+      aria-label={`${label}하기`}
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setDone(true);
+          setTimeout(() => setDone(false), 1500);
+        } catch {}
+      }}
+    >
+      {done ? "복사했어요" : label}
+    </button>
+  );
+}
+
+/** <details> that renders its (often large) body only once opened. */
+export function LazyDetails({
+  summary,
+  className = "restDetails",
+  children,
+}: {
+  summary: React.ReactNode;
+  className?: string;
+  children: () => React.ReactNode;
+}) {
+  const [opened, setOpened] = useState(false);
+  return (
+    <details className={className} onToggle={(e) => e.currentTarget.open && setOpened(true)}>
+      <summary>{summary}</summary>
+      {opened && children()}
+    </details>
+  );
+}
+
+const noteTargets = (note: Intervention): Actor[] =>
+  note.target === "both" ? ["GPT", "Claude"] : [note.target];
+
+/** Mirrors lib/interventions isPendingNote (that module uses fs). */
+export function notePending(note: Intervention) {
+  if (note.expired) return false;
+  const got = note.deliveries ? note.deliveries.map((d) => d.actor) : note.appliedAt ? noteTargets(note) : [];
+  return noteTargets(note).some((a) => !got.includes(a));
+}
+
+/** "9/14 13:05:12" — same day shows only the time. */
+export function formatStamp(iso?: string, now = Date.now()) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const time = d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const sameDay = new Date(now).toDateString() === d.toDateString();
+  return sameDay ? time : `${d.getMonth() + 1}/${d.getDate()} ${time}`;
+}
+
+/** Machine-readable timestamp with the full date on hover. */
+export function Stamp({ at, label }: { at?: string; label?: string }) {
+  if (!at) return null;
+  const full = new Date(at).toLocaleString("ko-KR", { hour12: false });
+  return (
+    <time className="stamp" dateTime={at} title={label ? `${label} ${full}` : full}>
+      {label && `${label} `}
+      {formatStamp(at)}
+    </time>
   );
 }
 
@@ -261,7 +335,7 @@ export function MarkdownField(props: FieldProps) {
         placeholder={props.placeholder}
         maxLength={props.maxLength}
         minLength={props.minLength}
-        required={props.required}
+        required={props.required && !preview}
         disabled={props.disabled}
       />
       {preview && (
@@ -445,7 +519,17 @@ function BubbleView({
         <span className={`avatar ${actor.toLowerCase()}`}>{actor === "GPT" ? "G" : "C"}</span>
         <span>
           <b>{actor}</b>
-          <small>{call.result?.model ?? (call.status === "running" ? "응답 중" : "")}</small>
+          <small>
+            {call.result?.model ?? (call.status === "running" ? "응답 중" : "")}
+            {" · "}
+            <Stamp at={call.startedAt} label="요청" />
+            {call.finishedAt && (
+              <>
+                {" → "}
+                <Stamp at={call.finishedAt} label="완료" />
+              </>
+            )}
+          </small>
         </span>
         <span className={`callStatus ${call.status}`}>
           {call.status === "running"
@@ -468,7 +552,7 @@ function BubbleView({
       {call.error && <p className="error">{call.error}</p>}
       {a && (
         <>
-          {a.questions.length > 0 && (
+          {a.questions.length > 0 && call.stage !== "explore" && (
             <ol className="pointList">
               {a.questions.map((q, i) => (
                 <li key={i}>{q}</li>
@@ -494,6 +578,36 @@ function BubbleView({
               ))}
             </ul>
           )}
+          {call.stage === "explore" &&
+            (a.critiques.length ? (
+              <div className="changeList exclusions">
+                <b>제외한 자료 {a.critiques.length}건</b>
+                <ul>
+                  {a.critiques.map((c, i) => (
+                    <li key={i}>
+                      <span>{c.claim}</span>
+                      <p>{c.objection}</p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="help">앞 차례 자료는 모두 유지했어요.</p>
+            ))}
+          {call.stage === "explore" && (
+            <div className="threadList">
+              <b>다음 탐색 흐름</b>
+              {a.questions.length ? (
+                <ul>
+                  {a.questions.map((q, i) => (
+                    <li key={i}>{q}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="help">더 파고들 흐름이 없다고 판단했어요.</p>
+              )}
+            </div>
+          )}
           {editing && (
             <div className="changeList">
               <b>{call.stage === "merge" ? "합치면서 정한 것" : "이번 차례 변경 사항"}</b>
@@ -511,7 +625,7 @@ function BubbleView({
               )}
             </div>
           )}
-          {!editing && a.critiques.length > 0 && (
+          {!editing && call.stage !== "explore" && a.critiques.length > 0 && (
             <ul className="critiqueList" aria-label="비판">
               {a.critiques.map((c, i) => (
                 <li key={i}>
@@ -529,10 +643,9 @@ function BubbleView({
                 최종 보고서 탭에서 보기 →
               </button>
             ) : structured ? (
-              <details className="restDetails">
-                <summary>{writesDocument ? "이 버전 문서 전체 보기" : "전체 설명 보기"}</summary>
-                <SafeMarkdown>{rest}</SafeMarkdown>
-              </details>
+              <LazyDetails summary={writesDocument ? "이 버전 문서 전체 보기" : "전체 설명 보기"}>
+                {() => <SafeMarkdown>{rest}</SafeMarkdown>}
+              </LazyDetails>
             ) : (
               <SafeMarkdown>{rest}</SafeMarkdown>
             ))}
@@ -553,17 +666,45 @@ function BubbleView({
 }
 
 function HumanNote({ note }: { note: Intervention }) {
+  const pending = notePending(note);
+  const deliveries =
+    note.deliveries ??
+    (note.appliedAt && note.appliedStage
+      ? noteTargets(note).map((actor) => ({
+          actor,
+          stage: note.appliedStage!,
+          round: note.appliedRound ?? 0,
+          at: note.appliedAt!,
+        }))
+      : []);
   return (
-    <div className={`humanNote ${note.appliedAt ? "" : "pending"}`}>
+    <div className={`humanNote ${pending ? "pending" : ""} ${note.expired ? "expired" : ""}`}>
       <div className="noteHead">
-        <span className="avatar human">나</span>
+        <span className="avatar human" aria-hidden>
+          나
+        </span>
         <span>
           <b>사람 개입</b>
           <small>
             {note.target === "both" ? "GPT + Claude" : `${note.target}에게`} ·{" "}
-            {note.appliedAt && note.appliedStage
-              ? `${stageLabels[note.appliedStage]} 단계에 반영됨`
-              : "다음 단계 시작 시 반영 예정"}
+            <Stamp at={note.createdAt} label="보냄" />
+          </small>
+          <small className="deliveries">
+            {deliveries.map((d) => (
+              <span key={`${d.actor}-${d.stage}-${d.round}`} className="delivered">
+                {d.actor}에게 전달 · {stageLabels[d.stage]}
+                {d.round ? ` R${d.round}` : ""} <Stamp at={d.at} />
+              </span>
+            ))}
+            {note.expired
+              ? noteTargets(note)
+                  .filter((a) => !deliveries.some((d) => d.actor === a))
+                  .map((a) => (
+                    <span key={a} className="missed">
+                      {a}에게는 연구가 끝나 전달하지 못했어요
+                    </span>
+                  ))
+              : pending && <span>해당 모델의 다음 차례에 전달할게요</span>}
           </small>
         </span>
       </div>
@@ -580,12 +721,7 @@ function QuestionBubble({ project }: { project: Project }) {
     <div className="questionBubble">
       <div className="chatMessage userBubble">
         <small>
-          내 질문 · {new Date(project.createdAt).toLocaleString("ko-KR", {
-            month: "numeric",
-            day: "numeric",
-            hour: "numeric",
-            minute: "2-digit",
-          })}
+          내 질문 · <Stamp at={project.createdAt} label="요청" />
           {(project.referenceText || files > 0) &&
             ` · 참고 자료 ${project.referenceText ? "텍스트" : ""}${project.referenceText && files ? " + " : ""}${files ? `파일 ${files}개` : ""}`}
         </small>
@@ -604,9 +740,10 @@ export function DebateThread({
 }) {
   const [filter, setFilter] = useState("all");
   const codraft = project.strategy === "codraft";
+  const relay = project.strategy === "relay";
   const calls = project.calls.filter((c) => c.stage in stageHints);
   const notes = project.interventions ?? [];
-  const pending = notes.filter((n) => !n.appliedAt);
+  const pending = notes.filter((n) => notePending(n) && !n.appliedAt);
   const planCall = calls.find((c) => c.stage === "plan");
   const synthesisCall = calls.find((c) => c.stage === "synthesis");
   const chips = [
@@ -679,13 +816,12 @@ export function DebateThread({
   return (
     <div className="debate">
       <QuestionBubble project={project} />
-      <div className="roundChips" role="tablist" aria-label="라운드 선택">
+      <div className="roundChips" role="group" aria-label="라운드 선택">
         {chips.map(([key, label]) => (
           <button
             key={key}
             type="button"
-            role="tab"
-            aria-selected={filter === key}
+            aria-pressed={filter === key}
             className={filter === key ? "active" : ""}
             onClick={() => setFilter(key)}
           >
@@ -715,14 +851,14 @@ export function DebateThread({
           <div className="roundBlock" key={r.number}>
             <div className="roundHead">
               <span>ROUND {String(r.number).padStart(2, "0")}</span>
-              <b>{codraft ? "공동 문서 다듬기" : `질문 ${r.questions.length}개`}</b>
+              <b>{codraft ? "공동 문서 다듬기" : relay ? "탐색 릴레이" : `질문 ${r.questions.length}개`}</b>
               <em>
                 {r.novelty === undefined
                   ? "진행 중"
                   : `새 정보 ${Math.round(r.novelty * 100)}% · 남은 쟁점 ${r.requeued.length}개`}
               </em>
             </div>
-            {!codraft && (
+            {!codraft && !relay && (
               <details className="restDetails roundQuestions">
                 <summary>이번 라운드 질문</summary>
                 <ol>
@@ -732,7 +868,15 @@ export function DebateThread({
                 </ol>
               </details>
             )}
-            {codraft ? (
+            {relay ? (
+              <>
+                {turnBlock("explore", r.number, "Claude")}
+                {turnBlock("explore", r.number, "GPT", {
+                  notes: false,
+                  title: !pick("explore", r.number, "Claude"),
+                })}
+              </>
+            ) : codraft ? (
               <>
                 {r.number === 1 && parallelBlock("draft", 1)}
                 {r.number === 1 && turnBlock("merge", 1, "GPT")}
@@ -786,13 +930,12 @@ export function DocumentPanel({ project }: { project: Project }) {
     d.stage === "draft" ? `${d.author} 초안` : d.stage === "merge" ? "합본" : `R${d.round} ${d.author}`;
   return (
     <div className="documentPanel">
-      <div className="versionBar" role="tablist" aria-label="문서 버전">
+      <div className="versionBar" role="group" aria-label="문서 버전">
         {docs.map((d) => (
           <button
             key={d.version}
             type="button"
-            role="tab"
-            aria-selected={d.version === current.version}
+            aria-pressed={d.version === current.version}
             className={`${d.version === current.version ? "active" : ""} ${d.author.toLowerCase()}`}
             onClick={() => setPicked(d.version)}
           >
@@ -1013,6 +1156,12 @@ type UpdateInfo = {
 export function UpdateButton() {
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [open, setOpen] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (open && dialog && !dialog.open) dialog.showModal();
+    if (!open && dialog?.open) dialog.close();
+  }, [open]);
   const [phase, setPhase] = useState<"idle" | "requesting" | "restarting" | "failed">("idle");
   const [message, setMessage] = useState("");
   async function load(refresh = false) {
@@ -1079,7 +1228,18 @@ export function UpdateButton() {
         새 업데이트 {info.behind}개
       </button>
       {open && (
-        <div className="updateDialog" role="dialog" aria-modal="true" aria-labelledby="updateTitle">
+        <dialog
+          ref={dialogRef}
+          className="updateDialog"
+          aria-labelledby="updateTitle"
+          onCancel={(e) => {
+            if (phase === "requesting" || phase === "restarting") e.preventDefault();
+            else setOpen(false);
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && phase !== "restarting") setOpen(false);
+          }}
+        >
           <div>
             <h2 id="updateTitle">업데이트가 있습니다</h2>
             <p className="help">
@@ -1124,8 +1284,72 @@ export function UpdateButton() {
               </button>
             </div>
           </div>
-        </div>
+        </dialog>
       )}
     </div>
+  );
+}
+
+/** What is running right now, plus project totals. */
+export function ProjectNow({ project }: { project: Project }) {
+  const running = project.calls.filter((c) => c.status === "running");
+  const turn = project.conversation.turns.find((t) => t.status === "running");
+  const live = running.length > 0 || Boolean(turn);
+  const now = useNow(live || project.status === "running");
+  const done = project.calls.filter((c) => c.status === "complete" && !c.replayed).length;
+  const failed = project.calls.filter((c) => c.status === "failed").length;
+  const finishedAt = [...project.calls].reverse().find((c) => c.finishedAt)?.finishedAt;
+  const end =
+    project.status === "running" || live ? now : Date.parse(finishedAt ?? project.updatedAt);
+  return (
+    <div className="projectNow">
+      {running.length ? (
+        <span className="nowLine">
+          <span className="liveDot" aria-hidden /> 지금:{" "}
+          {running.map((c, i) => (
+            <span key={i}>
+              {i > 0 && " · "}
+              <b>{c.actor}</b> {stageLabels[c.stage]}
+              {c.round ? ` R${c.round}` : ""} <Elapsed start={c.startedAt} running />
+            </span>
+          ))}
+        </span>
+      ) : turn ? (
+        <span className="nowLine">
+          <span className="liveDot" aria-hidden /> 지금: 후속 질문에 답하는 중{" "}
+          <Elapsed start={turn.createdAt} running />
+        </span>
+      ) : (
+        <span className="nowLine idle">진행 중인 호출이 없어요</span>
+      )}
+      <span className="nowTotals">
+        총 {formatElapsed(Math.max(0, end - Date.parse(project.createdAt)))} · 호출 {done}회
+        {failed ? ` · 실패 ${failed}회` : ""} · {project.tokens.toLocaleString()} 토큰
+      </span>
+    </div>
+  );
+}
+
+/** Research relay: what was dropped, by whom, and why. */
+export function ExclusionList({ project }: { project: Project }) {
+  const items = project.exclusions ?? [];
+  if (!items.length) return null;
+  return (
+    <section className="exclusionPanel" aria-label="제외한 자료">
+      <h3>
+        제외한 자료 <span>{items.length}</span>
+      </h3>
+      <ul>
+        {items.map((e, i) => (
+          <li key={i}>
+            <span className="excludedTarget">{e.target}</span>
+            <p>{e.reason}</p>
+            <small>
+              {e.actor} · R{e.round} · <Stamp at={e.at} />
+            </small>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

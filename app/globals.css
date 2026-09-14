@@ -1,7 +1,7 @@
 :root {
   --bg: #f7f8fa;
   --ink: #18252b;
-  --muted: #738187;
+  --muted: #53565f;
   --line: #e1e7e8;
   --teal: #147c73;
   --soft: #e9f4f0;
@@ -249,6 +249,10 @@ textarea::placeholder {
 }
 textarea:focus {
   outline: none;
+}
+textarea:focus-visible {
+  outline: 2px solid #0381fe;
+  outline-offset: 2px;
 }
 .formOptions {
   display: flex;
@@ -1969,4 +1973,280 @@ blockquote {
   padding: 1px 5px;
   margin-left: 6px;
   vertical-align: middle;
+}
+
+/* ---------- Timestamps ---------- */
+.stamp {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.userBubble .stamp {
+  color: #d8efea;
+}
+
+/* ---------- Project actions, status lines, relay ----------
+   docs/DESIGN.md: Hongik palette, 13px+ text, 4px grid, radius 8/12. */
+.projectActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.projectActions button,
+.reportActions button,
+.copyButton {
+  font-size: 13px;
+}
+button.danger {
+  background: #d91f2f;
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-weight: 600;
+}
+button.danger:hover {
+  background: #b71927;
+}
+.dangerText {
+  color: #d91f2f !important;
+}
+.renameForm {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 4px 0 16px;
+  flex-wrap: wrap;
+}
+.renameForm input {
+  font-size: 20px;
+  font-weight: 600;
+  color: #313339;
+  padding: 8px 12px;
+  border: 1px solid #d0d0d2;
+  border-radius: 8px;
+  min-width: 0;
+  flex: 1 1 280px;
+}
+.renameForm input:focus-visible,
+.projectSearch:focus-visible {
+  outline: 2px solid #0381fe;
+  outline-offset: 2px;
+}
+.projectSearch {
+  margin: 0 8px 8px;
+  padding: 8px 12px;
+  border: 1px solid #d0d0d2;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #313339;
+  width: calc(100% - 16px);
+}
+.connectionBanner {
+  background: #e8ebfb;
+  border: 1px solid #d0d0d2;
+  color: #313339;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.connectionBanner.warn {
+  background: #fdecee;
+  border-color: #f3c2c7;
+}
+.connectionBanner code {
+  font-size: 13px;
+  background: #fff;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.projectNow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0 4px;
+  padding: 8px 12px;
+  background: #fff;
+  border: 1px solid #d0d0d2;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #313339;
+  font-variant-numeric: tabular-nums;
+}
+.nowLine.idle,
+.nowTotals {
+  color: #53565f;
+}
+.liveDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #1833db;
+  margin-right: 4px;
+  vertical-align: middle;
+  animation: pulse 1.5s infinite;
+}
+.copyButton {
+  background: none;
+  border: 1px solid #d0d0d2;
+  color: #313339;
+  border-radius: 8px;
+  padding: 4px 12px;
+  margin-top: 8px;
+}
+.copyButton:hover {
+  background: #e8ebfb;
+}
+.reportActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.reportActions .copyButton {
+  margin: 0;
+}
+.threadList {
+  background: #e8ebfb;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  color: #313339;
+}
+.threadList > b {
+  font-size: 13px;
+  color: #1833db;
+}
+.threadList ul {
+  margin: 4px 0 0;
+  padding-left: 20px;
+}
+.changeList.exclusions {
+  background: #fdecee;
+}
+.changeList.exclusions > b {
+  font-size: 13px;
+  color: #d91f2f;
+}
+.humanNote .deliveries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 13px;
+}
+.humanNote .delivered {
+  color: #1833db;
+}
+.humanNote .missed {
+  color: #d91f2f;
+}
+.exclusionPanel {
+  background: #fff;
+  border: 1px solid #d0d0d2;
+  border-left: 4px solid #d91f2f;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 16px 0;
+  color: #313339;
+}
+.exclusionPanel h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.exclusionPanel h3 span {
+  color: #53565f;
+  font-weight: 500;
+}
+.exclusionPanel ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+.exclusionPanel li {
+  font-size: 13px;
+  border-top: 1px dashed #d0d0d2;
+  padding-top: 8px;
+}
+.excludedTarget {
+  display: block;
+  text-decoration: line-through;
+  color: #53565f;
+  overflow-wrap: anywhere;
+}
+.exclusionPanel p {
+  margin: 4px 0;
+}
+.exclusionPanel small {
+  color: #53565f;
+  font-size: 13px;
+}
+/* Native <dialog>: focus trap, Escape and focus return come from the browser. */
+dialog.updateDialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  max-width: 520px;
+  width: calc(100% - 32px);
+  display: block;
+}
+dialog.updateDialog:not([open]) {
+  display: none;
+}
+dialog.updateDialog::backdrop {
+  background: rgba(49, 51, 57, 0.4);
+}
+.roundChips button[aria-pressed="true"],
+.versionBar button[aria-pressed="true"] {
+  font-weight: 600;
+}
+/* Several labels were 8-10px; keep them readable. */
+.pill,
+.usageStripHeading .eyebrow,
+.sideLabel,
+.workspace,
+.stats p,
+.stats small,
+.roundHead span,
+.callStatus,
+.elapsed,
+.stamp,
+.modelChip,
+.help,
+.sectionHeading > span {
+  font-size: max(12px, 1em);
+}
+@media (max-width: 760px) {
+  /* A sticky composer covered over half a phone screen with the keyboard open. */
+  .interventionBox,
+  .chatComposer {
+    position: static;
+  }
+  .projectActions {
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 480px) {
+  .stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .stats > div {
+    border-right: 0;
+  }
+  .projectTitle {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .liveDot {
+    animation: none;
+  }
 }

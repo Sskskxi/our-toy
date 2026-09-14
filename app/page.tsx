@@ -2,7 +2,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { ModelChoices, Project } from "@/lib/types";
 import {
+  CopyButton,
   DebateThread,
+  ExclusionList,
+  ProjectNow,
   DocumentPanel,
   Elapsed,
   InterventionBox,
@@ -11,6 +14,7 @@ import {
   ModelChips,
   ModelPicker,
   RichMarkdown,
+  Stamp,
   UpdateButton,
   loadLocal,
   saveLocal,
@@ -28,7 +32,13 @@ import type {
 type Brief = Pick<
   Project,
   "id" | "topic" | "status" | "mode" | "createdAt" | "stage"
-> & { busy?: boolean };
+> & { busy?: boolean; title?: string; updatedAt?: string };
+type Strategy = "codraft" | "debate" | "relay";
+const strategyNames: Record<Strategy, string> = {
+  codraft: "공동 초안",
+  debate: "토론",
+  relay: "탐색 릴레이",
+};
 const labels: Record<string, string> = {
   queued: "대기 중",
   running: "연구 중",
@@ -116,7 +126,7 @@ export default function Page() {
     [project, setProject] = useState<Project | null>(null);
   const [topic, setTopic] = useState(""),
     [mode, setMode] = useState<"mock" | "subscription">("mock"),
-    [strategy, setStrategy] = useState<"codraft" | "debate">("codraft"),
+    [strategy, setStrategy] = useState<Strategy>("codraft"),
     [rounds, setRounds] = useState(8),
     [minRounds, setMinRounds] = useState(6),
     [threshold, setThreshold] = useState(0.12),
@@ -129,6 +139,13 @@ export default function Page() {
     "GPT" | "Claude" | "both"
   >("both");
   const [messageBusy, setMessageBusy] = useState(false);
+  const [offline, setOffline] = useState(false);
+  const [workerUp, setWorkerUp] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [search, setSearch] = useState("");
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [resumeModels, setResumeModels] = useState<ModelChoices>({});
   const [modelDefaults, setModelDefaults] = useState<ModelDefaults>();
   const [models, setModels] = useState<ModelChoices>({});
   const [chatModels, setChatModels] = useState<ModelChoices>({});
@@ -144,10 +161,11 @@ export default function Page() {
       if (attachments.length + files.length > 5)
         throw Error("파일은 최대 5개까지 첨부할 수 있습니다.");
       const added: { name: string; text: string }[] = [];
+      const problems: string[] = [];
       const used = () =>
         referenceText.length +
         [...attachments, ...added].reduce((n, f) => n + f.text.length, 0);
-      for (const file of files) {
+      for (const file of files) try {
         if (/\.pdf$/i.test(file.name)) {
           if (file.size > PDF_MAX_BYTES)
             throw Error(`${file.name}: PDF는 20MB 이하여야 합니다.`);
@@ -178,10 +196,14 @@ export default function Page() {
             `${file.name}: 비어 있지 않은 UTF-8 텍스트 40,000자 이하가 필요합니다.`,
           );
         added.push({ name: file.name, text });
+      } catch (fileError) {
+        // One unreadable file must not discard the others in the same batch.
+        problems.push(fileError instanceof Error ? fileError.message : `${file.name}: 읽지 못했어요.`);
       }
       if (used() > 60000)
         throw Error("참고 텍스트와 파일 내용은 합계 60,000자까지 가능합니다.");
       setAttachments((previous) => [...previous, ...added]);
+      if (problems.length) setError(problems.join(" / "));
     } catch (e) {
       setError(
         e instanceof Error
@@ -193,6 +215,8 @@ export default function Page() {
     }
   }
   const [tab, setTab] = useState("overview");
+  // Without a project: "home" shows usage + intro, "new" shows only the composer.
+  const [view, setView] = useState<"home" | "new">("home");
   const projectsRef = useRef<Brief[]>([]);
   const setProjects = (next: Brief[] | ((prev: Brief[]) => Brief[])) =>
     setProjectsState((prev) => {
@@ -208,12 +232,14 @@ export default function Page() {
     if (p && /^[a-f0-9-]{36}$/.test(p)) {
       setId(p);
       setTab(params.get("tab") ?? "overview");
+    } else if (params.has("new")) {
+      setView("new");
     }
     const draft = loadLocal<{
       topic?: string;
       referenceText?: string;
       attachments?: { name: string; text: string }[];
-      strategy?: "codraft" | "debate";
+      strategy?: Strategy;
     }>("draft");
     if (draft) {
       setTopic(draft.topic ?? "");
@@ -225,9 +251,13 @@ export default function Page() {
   }, []);
   useEffect(() => {
     if (!restored) return;
-    const url = id ? `?p=${id}&tab=${encodeURIComponent(tab)}` : location.pathname;
+    const url = id
+      ? `?p=${id}&tab=${encodeURIComponent(tab)}`
+      : view === "new"
+        ? "?new"
+        : location.pathname;
     history.replaceState(null, "", url);
-  }, [id, tab, restored]);
+  }, [id, tab, view, restored]);
   useEffect(() => {
     if (!restored) return;
     saveLocal(
@@ -241,7 +271,7 @@ export default function Page() {
     if (id) setMessage(loadLocal<string>(`chat:${id}`) ?? "");
   }, [id]);
   useEffect(() => {
-    if (id) return;
+    if (id || view !== "home") return;
     let alive = true;
     async function refreshUsage() {
       try {
@@ -269,26 +299,31 @@ export default function Page() {
       alive = false;
       clearInterval(timer);
     };
-  }, [id]);
+  }, [id, view]);
   useEffect(() => {
     let alive = true;
     let first = true;
     async function refresh() {
       try {
-        const res = await fetch("/api/projects");
+        const res = await fetch("/api/projects", { cache: "no-store" });
         if (!res.ok) throw Error("프로젝트 목록을 읽지 못했습니다.");
         const data = await res.json();
         if (alive) {
-          setProjects(data.projects);
+          setOffline(false);
+          setWorkerUp(data.workerAlive !== false);
+          // Replacing an identical list would re-render the whole project view.
+          if (JSON.stringify(data.projects) !== JSON.stringify(projectsRef.current))
+            setProjects(data.projects);
           setReady(data.liveReady);
           setModelDefaults(data.modelDefaults);
           if (first) {
-            setMode(data.defaultMode);
+            setMode(data.liveReady ? data.defaultMode : "mock");
             first = false;
           }
         }
-      } catch (e) {
-        if (alive) setError(String(e));
+      } catch {
+        // One quiet banner that clears itself, not a repeating error.
+        if (alive) setOffline(true);
       }
     }
     // Poll often only while something is running and the tab is visible.
@@ -317,7 +352,10 @@ export default function Page() {
     if (!id) return;
     let alive = true;
     setProject(null);
+    setNotFound(false);
     setChatModels({});
+    setResumeModels({});
+    setRenaming(null);
     let version = "";
     let active = true;
     async function refresh() {
@@ -325,9 +363,15 @@ export default function Page() {
         const res = await fetch(`/api/projects/${id}?v=${encodeURIComponent(version)}`, {
           cache: "no-store",
         });
+        if (res.status === 404 || res.status === 400) {
+          if (alive) setNotFound(true);
+          active = false;
+          return;
+        }
         if (!res.ok) throw Error("프로젝트를 읽지 못했습니다.");
         const p = await res.json();
         if (!alive) return;
+        setOffline(false);
         version = p.version ?? "";
         // An unchanged project skips re-rendering the whole thread.
         if (!p.unchanged) {
@@ -339,8 +383,8 @@ export default function Page() {
               (t: { status: string }) => t.status === "running" || t.status === "queued",
             );
         }
-      } catch (e) {
-        if (alive) setError(String(e));
+      } catch {
+        if (alive) setOffline(true);
       }
     }
     let timer: ReturnType<typeof setTimeout>;
@@ -434,23 +478,74 @@ export default function Page() {
     }
   }
   async function resumeProject() {
-    if (!project) return;
-    setError("");
-    try {
-      const res = await fetch(`/api/projects/${project.id}/resume`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      });
-      const data = await res.json();
-      if (!res.ok) throw Error(data.error);
+    if (!project || actionBusy) return;
+    const data = await projectAction("POST", "/resume", {
+      models: project.mode === "subscription" ? cleanModels(resumeModels) : undefined,
+    });
+    if (data)
       setProject((current) =>
         current ? { ...current, status: "queued", stage: "이어서 실행 대기", error: undefined } : current,
       );
+  }
+  async function projectAction(
+    method: "POST" | "PATCH" | "DELETE",
+    suffix: string,
+    body?: unknown,
+  ) {
+    if (!project) return undefined;
+    setActionBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/projects/${project.id}${suffix}`, {
+        method,
+        headers: method === "DELETE" ? undefined : { "Content-Type": "application/json" },
+        body: method === "DELETE" ? undefined : JSON.stringify(body ?? {}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw Error(data.error);
+      return data;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      return undefined;
+    } finally {
+      setActionBusy(false);
     }
   }
+  async function stopProject() {
+    if (!project) return;
+    if (!confirm("진행 중인 호출을 멈출까요? 끝난 단계는 저장돼서 나중에 이어서 실행할 수 있어요."))
+      return;
+    if (await projectAction("POST", "/cancel"))
+      setProject((c) => (c ? { ...c, stage: "중지 요청됨 · 지금 호출을 정리하고 있어요" } : c));
+  }
+  async function deleteProject() {
+    if (!project) return;
+    const name = project.title ?? firstLine(project.topic);
+    if (!confirm(`"${name}" 프로젝트를 삭제할까요? 답변·문서·대화 기록이 모두 지워지고 되돌릴 수 없어요.`))
+      return;
+    if (await projectAction("DELETE", "")) {
+      setProjects((list) => list.filter((p) => p.id !== project.id));
+      setId("");
+      setProject(null);
+      setView("home");
+    }
+  }
+  async function renameProject(title: string) {
+    if (!project) return;
+    const data = await projectAction("PATCH", "", { title });
+    if (data) {
+      setProject((c) => (c ? { ...c, title: data.title } : c));
+      setProjects((list) => list.map((p) => (p.id === project.id ? { ...p, title: data.title } : p)));
+      setRenaming(null);
+    }
+  }
+  useEffect(() => {
+    const running = project && (project.status === "running" || project.status === "queued");
+    const name = project ? project.title ?? firstLine(project.topic) : "";
+    document.title = project
+      ? `${running ? "진행 중 · " : project.status === "complete" ? "완료 · " : ""}${name} · 우리의장난감`
+      : "우리의장난감 · GPT와 Claude 공동 연구";
+  }, [project]);
   async function retryMessage(turnId: string) {
     if (!project) return;
     setError("");
@@ -478,21 +573,35 @@ export default function Page() {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
+  const canChat = Boolean(
+    project &&
+      project.status !== "running" &&
+      project.status !== "queued" &&
+      project.calls.some((c) => c.status === "complete"),
+  );
   return (
     <div className="shell">
       <aside>
-        <a className="brand" href="/">
+        <a
+          className="brand"
+          href="/"
+          onClick={(e) => {
+            e.preventDefault();
+            setId("");
+            setProject(null);
+            setView("home");
+          }}
+        >
           <span className="brandIcon">◈</span> 우리의장난감
         </a>
         <div className="workspace">PERSONAL WORKSPACE</div>
+        {/* Unsent drafts are kept; the composer is the only place to see them now. */}
         <button
           className="newProject"
           onClick={() => {
             setId("");
             setProject(null);
-            setTopic("");
-            setReferenceText("");
-            setAttachments([]);
+            setView("new");
           }}
         >
           ＋ 새 연구 프로젝트
@@ -500,25 +609,44 @@ export default function Page() {
         <div className="sideLabel">
           연구 라이브러리 <span>{projects.length}</span>
         </div>
+        {projects.length > 4 && (
+          <input
+            className="projectSearch"
+            type="search"
+            aria-label="프로젝트 검색"
+            placeholder="프로젝트 검색"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        )}
         <nav aria-label="연구 프로젝트">
-          {projects.map((p) => (
-            <button
-              key={p.id}
-              className={`projectButton ${id === p.id ? "selected" : ""}`}
-              onClick={() => {
-                setId(p.id);
-                setTab("overview");
-              }}
-            >
-              <span className={`dot ${p.status}`} />
-              <span>
-                {firstLine(p.topic)}
-                <small>
-                  {labels[p.status]} · {p.mode.toUpperCase()}
-                </small>
-              </span>
-            </button>
-          ))}
+          {projects
+            .filter((p) =>
+              search.trim()
+                ? `${p.title ?? ""} ${p.topic}`.toLowerCase().includes(search.trim().toLowerCase())
+                : true,
+            )
+            .map((p) => (
+              <button
+                key={p.id}
+                className={`projectButton ${id === p.id ? "selected" : ""}`}
+                aria-current={id === p.id ? "page" : undefined}
+                title={p.title ?? firstLine(p.topic)}
+                onClick={() => {
+                  setId(p.id);
+                  setTab("overview");
+                }}
+              >
+                <span className={`dot ${p.status}`} aria-hidden />
+                <span>
+                  {p.title ?? firstLine(p.topic)}
+                  <small>
+                    {labels[p.status]}
+                    {p.busy && p.stage ? ` · ${p.stage}` : ` · ${p.mode === "mock" ? "Mock" : "구독"}`}
+                  </small>
+                </span>
+              </button>
+            ))}
         </nav>
         <div className="sideFooter">
           <span className="dot complete" /> 로컬 저장소 연결됨
@@ -528,7 +656,8 @@ export default function Page() {
       <main>
         <header>
           <span>
-            워크스페이스 <b>/</b> {project ? "연구 프로젝트" : "새 연구"}
+            워크스페이스 <b>/</b>{" "}
+            {id ? "연구 프로젝트" : view === "new" ? "새 연구" : "홈"}
           </span>
           <span className="updateBanner">
             <UpdateButton />
@@ -536,7 +665,7 @@ export default function Page() {
           </span>
         </header>
         <div className="content">
-          {!id && (
+          {!id && view === "home" && (
             <section
               className="accountUsageStrip"
               aria-label="계정 구독 잔여 사용량"
@@ -565,13 +694,24 @@ export default function Page() {
               </div>
             </section>
           )}
+          {offline && (
+            <div className="connectionBanner" role="status">
+              서버 연결이 끊겼어요. 자동으로 다시 연결하고 있어요.
+            </div>
+          )}
+          {!offline && !workerUp && projects.some((p) => p.busy) && (
+            <div className="connectionBanner warn" role="status">
+              연구 작업자(worker)가 멈춰 있어요. 진행 중으로 보이는 작업이 실제로는 멈췄을 수 있어요.
+              터미널에서 <code>pm2 status</code> 또는 <code>npm run dev</code>를 확인해 주세요.
+            </div>
+          )}
           {error && (
             <div role="alert" className="error">
-              {error}
+              {error.replace(/^(Type)?Error:\s*/, "")}
               <button onClick={() => setError("")}>닫기</button>
             </div>
           )}
-          {!id ? (
+          {!id && view === "home" ? (
             <>
               <div className="eyebrow">TWO PERSPECTIVES. DEEPER RESEARCH.</div>
               <h1>
@@ -584,6 +724,9 @@ export default function Page() {
                 <br />
                 질문을 남기면 초안부터 최종 보고서까지 자동으로 이어지고, 중간에 끼어들 수도 있습니다.
               </p>
+            </>
+          ) : !id ? (
+            <>
               <form className="composer" onSubmit={submit}>
                 <MarkdownField
                   id="topic"
@@ -662,9 +805,10 @@ export default function Page() {
                     협업 방식
                     <select
                       value={strategy}
-                      onChange={(e) => setStrategy(e.target.value as "codraft" | "debate")}
+                      onChange={(e) => setStrategy(e.target.value as Strategy)}
                     >
                       <option value="codraft">공동 초안 · 합치고 번갈아 수정 (권장)</option>
+                      <option value="relay">탐색 릴레이 · Claude와 GPT가 자료조사 보완</option>
                       <option value="debate">토론 · 조사→비판→반박</option>
                     </select>
                   </label>
@@ -737,10 +881,12 @@ export default function Page() {
                 <p className="help">
                   최소 {minRounds}라운드 이후 수렴을 판단합니다. 최대 {rounds}
                   라운드 · 모델 호출 최대{" "}
-                  {strategy === "codraft" ? 5 + 2 * rounds : 2 + 6 * rounds}회 (재시도·검색 제외).
+                  {strategy === "codraft" ? 5 + 2 * rounds : strategy === "relay" ? 2 + 2 * rounds : 2 + 6 * rounds}회 (재시도·검색 제외).
                   {strategy === "codraft"
                     ? " 공동 초안: 두 모델이 각자 초안을 쓰고, GPT가 합친 문서를 Claude와 GPT가 번갈아 고칩니다. 둘 다 더 고칠 게 없다고 하면 끝납니다."
-                    : " 토론: 매 라운드 독립 조사 → 상호비판 → 반박을 반복합니다."}
+                    : strategy === "relay"
+                      ? " 탐색 릴레이: Claude가 먼저 조사하면 GPT가 이어받아 빈틈을 채우고, 흐름에 맞지 않는 자료는 이유와 함께 빼고, 유망한 분야를 더 파고들어요. 둘 다 더 파고들 흐름이 없으면 끝나요."
+                      : " 토론: 매 라운드 독립 조사 → 상호비판 → 반박을 반복합니다."}
                   최소와 최대를 같게 설정하면 지정한 라운드를 모두 수행합니다.
                 </p>
                 <div className="formBottom">
@@ -754,31 +900,21 @@ export default function Page() {
                   </button>
                 </div>
               </form>
-              <div className="suggestions">
-                <span>시작할 질문</span>
-                {[
-                  "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리",
-                  "도시 열섬을 줄이는 녹지 정책의 효과와 한계",
-                ].map((t) => (
-                  <button key={t} onClick={() => setTopic(t)}>
-                    {t} ↗
-                  </button>
-                ))}
-              </div>
-              <div className="process">
-                {[
-                  ["01", "각자 초안", "서로의 글을 보기 전, 각자의 관점으로"],
-                  ["02", "합치고 번갈아 수정", "갈리는 부분은 ⚖️ 쟁점으로 남기고 근거로 다듬기"],
-                  ["03", "최종 보고서", "남은 쟁점과 질문까지 담아 정리"],
-                ].map(([n, title, desc]) => (
-                  <div key={n}>
-                    <span>{n}</span>
-                    <h3>{title}</h3>
-                    <p>{desc}</p>
-                  </div>
-                ))}
-              </div>
             </>
+          ) : notFound ? (
+            <div className="empty">
+              <h2>프로젝트를 찾을 수 없어요.</h2>
+              <p>삭제됐거나 주소가 잘못됐어요. 왼쪽 목록에서 다른 프로젝트를 골라 주세요.</p>
+              <button
+                className="secondary"
+                onClick={() => {
+                  setId("");
+                  setView("home");
+                }}
+              >
+                홈으로
+              </button>
+            </div>
           ) : !project ? (
             <p role="status">연구 기록을 불러오는 중…</p>
           ) : (
@@ -786,9 +922,38 @@ export default function Page() {
               <div className="projectTop">
                 <div>
                   <div className="eyebrow">
-                    AUTONOMOUS RESEARCH / {project.mode.toUpperCase()}
+                    {strategyNames[(project.strategy ?? "debate") as Strategy]} ·{" "}
+                    {project.mode === "mock" ? "Mock" : "구독"}
                   </div>
-                  <h1 className="projectTitle">{firstLine(project.topic)}</h1>
+                  {renaming !== null ? (
+                    <form
+                      className="renameForm"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void renameProject(renaming);
+                      }}
+                    >
+                      <label htmlFor="renameInput" className="srOnly">
+                        프로젝트 이름
+                      </label>
+                      <input
+                        id="renameInput"
+                        autoFocus
+                        maxLength={120}
+                        value={renaming}
+                        onChange={(e) => setRenaming(e.target.value)}
+                        onKeyDown={(e) => e.key === "Escape" && setRenaming(null)}
+                      />
+                      <button className="primary" disabled={actionBusy}>
+                        저장
+                      </button>
+                      <button type="button" className="secondary" onClick={() => setRenaming(null)}>
+                        취소
+                      </button>
+                    </form>
+                  ) : (
+                    <h1 className="projectTitle">{project.title ?? firstLine(project.topic)}</h1>
+                  )}
                   {project.topic.trim() !== firstLine(project.topic) && (
                     <details className="topicDetails">
                       <summary>연구 질문 전문 보기</summary>
@@ -797,18 +962,42 @@ export default function Page() {
                   )}
                   <ModelChips project={project} defaults={modelDefaults} />
                 </div>
-                <button
-                  className="secondary"
-                  onClick={() =>
-                    download(
-                      `research-${project.id}.json`,
-                      JSON.stringify(project, null, 2),
-                      "application/json",
-                    )
-                  }
-                >
-                  기록 내보내기 ↓
-                </button>
+                <div className="projectActions">
+                  {(project.status === "running" ||
+                    project.status === "queued" ||
+                    project.conversation.turns.some(
+                      (t) => t.status === "running" || t.status === "queued",
+                    )) && (
+                    <button className="danger" onClick={() => void stopProject()} disabled={actionBusy}>
+                      중지
+                    </button>
+                  )}
+                  <button
+                    className="secondary"
+                    onClick={() => setRenaming(project.title ?? firstLine(project.topic))}
+                  >
+                    이름 변경
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      download(
+                        `research-${project.id}.json`,
+                        JSON.stringify(project, null, 2),
+                        "application/json",
+                      )
+                    }
+                  >
+                    기록 내보내기
+                  </button>
+                  <button
+                    className="secondary dangerText"
+                    onClick={() => void deleteProject()}
+                    disabled={actionBusy}
+                  >
+                    삭제
+                  </button>
+                </div>
               </div>
               {project.mode === "mock" && (
                 <div className="notice">
@@ -843,9 +1032,13 @@ export default function Page() {
                   <small>주장 원장</small>
                   <strong>
                     {project.claims.length}
-                    <em> claims</em>
+                    <em> 개</em>
                   </strong>
-                  <p>출처 · 반론 추적</p>
+                  <p>
+                    {project.strategy === "relay"
+                      ? `제외한 자료 ${project.exclusions?.length ?? 0}개`
+                      : "출처 · 반론 추적"}
+                  </p>
                 </div>
                 <div>
                   <small>미해결 질문</small>
@@ -853,6 +1046,7 @@ export default function Page() {
                   <p>{project.conversation?.turns.length ?? 0}개 후속 대화</p>
                 </div>
               </div>
+              <ProjectNow project={project} />
               {project.error && (
                 <div className="error" role="alert">
                   {project.error}
@@ -865,44 +1059,99 @@ export default function Page() {
                       완료된 {project.calls.filter((c) => c.status === "complete").length}개 단계는 저장돼
                       있습니다. 한도·로그인 문제를 해결한 뒤 이어서 실행하면 멈춘 단계부터 다시 호출합니다.
                     </span>
-                    <button className="primary" onClick={() => void resumeProject()}>
-                      이어서 실행 ↻
+                    {project.mode === "subscription" && (
+                      <details className="chatModelDetails">
+                        <summary>모델·추론 강도 바꿔서 이어가기</summary>
+                        <ModelPicker
+                          value={resumeModels}
+                          onChange={setResumeModels}
+                          defaults={{
+                            GPT: {
+                              model: project.models?.GPT?.model ?? modelDefaults?.GPT.model ?? "",
+                              effort: project.models?.GPT?.effort ?? modelDefaults?.GPT.effort ?? "",
+                            },
+                            Claude: {
+                              model: project.models?.Claude?.model ?? modelDefaults?.Claude.model ?? "",
+                              effort: project.models?.Claude?.effort ?? modelDefaults?.Claude.effort ?? "",
+                            },
+                          }}
+                          disabled={actionBusy}
+                        />
+                      </details>
+                    )}
+                    <button
+                      className="primary"
+                      onClick={() => void resumeProject()}
+                      disabled={actionBusy}
+                    >
+                      {actionBusy ? "요청하는 중…" : "이어서 실행"}
                     </button>
                   </div>
                 )}
               {project.stopReason && (
                 <p className="stopReason">종료 사유 · {project.stopReason}</p>
               )}
-              <div className="tabs" role="tablist" aria-label="연구 보기">
-                {[
-                  ["overview", project.strategy === "codraft" ? "협업 과정" : "토론"],
-                  ...(project.strategy === "codraft" ? [["document", "공동 문서"]] : []),
+              {(() => {
+                const tabs: [string, string][] = [
+                  [
+                    "overview",
+                    project.strategy === "codraft"
+                      ? "협업 과정"
+                      : project.strategy === "relay"
+                        ? "탐색 과정"
+                        : "토론",
+                  ],
+                  ...(project.strategy === "codraft"
+                    ? ([["document", "공동 문서"]] as [string, string][])
+                    : []),
                   ["conversation", "대화"],
                   ["claims", "주장 · 근거"],
                   ["questions", "연구 질문"],
                   ["report", "최종 보고서"],
                   ["references", "참고 자료"],
-                ].map(([key, label]) => (
-                  <button
-                    role="tab"
-                    aria-selected={tab === key}
-                    key={key}
-                    onClick={() => setTab(key)}
-                    className={tab === key ? "active" : ""}
+                ];
+                const keys = tabs.map(([key]) => key);
+                // A tab from an old link may not exist for this strategy.
+                if (!keys.includes(tab)) queueMicrotask(() => setTab("overview"));
+                return (
+                  <div
+                    className="tabs"
+                    role="tablist"
+                    aria-label="연구 보기"
+                    onKeyDown={(e) => {
+                      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+                      const step = e.key === "ArrowRight" ? 1 : keys.length - 1;
+                      const next = keys[(keys.indexOf(tab) + step) % keys.length];
+                      setTab(next);
+                      document.getElementById(`tab-${next}`)?.focus();
+                    }}
                   >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <section role="tabpanel">
+                    {tabs.map(([key, label]) => (
+                      <button
+                        role="tab"
+                        id={`tab-${key}`}
+                        aria-selected={tab === key}
+                        aria-controls="project-tabpanel"
+                        tabIndex={tab === key ? 0 : -1}
+                        key={key}
+                        onClick={() => setTab(key)}
+                        className={tab === key ? "active" : ""}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+              <section role="tabpanel" id="project-tabpanel" aria-labelledby={`tab-${tab}`}>
                 {tab === "conversation" && (
                   <>
                     <div className="sectionHeading">
                       <div>
                         <h2>프로젝트 대화</h2>
                         <p className="help">
-                          GPT와 Claude의 프로젝트 세션이 이어집니다. 질문마다
-                          응답 대상을 선택할 수 있습니다.
+                          저장된 보고서·원장·최근 대화를 바탕으로 이어서 답해요. 질문마다 응답
+                          대상을 고를 수 있어요.
                         </p>
                       </div>
                       <span>
@@ -912,7 +1161,7 @@ export default function Page() {
                         개 답변 완료
                       </span>
                     </div>
-                    <div className="chatLog" aria-live="polite">
+                    <div className="chatLog">
                       {!(project.conversation?.turns ?? []).length && (
                         <div className="empty chatEmpty">
                           <h2>연구 결과에 이어서 질문하세요.</h2>
@@ -926,7 +1175,8 @@ export default function Page() {
                         <article className="chatTurn" key={turn.id}>
                           <div className="chatMessage userBubble">
                             <small>
-                              나 · {turn.target === "both" ? "GPT + Claude" : turn.target}{" "}
+                              나 · {turn.target === "both" ? "GPT + Claude" : turn.target} ·{" "}
+                              <Stamp at={turn.createdAt} label="요청" />{" "}
                               {turn.status !== "queued" && (
                                 <Elapsed
                                   start={turn.createdAt}
@@ -953,8 +1203,15 @@ export default function Page() {
                             <div className="chatMessage assistantBubble">
                               <small>
                                 {turn.target === "both" ? "공동 정리" : turn.target}
+                                {turn.status === "complete" && (
+                                  <>
+                                    {" · "}
+                                    <Stamp at={turn.updatedAt} label="답변" />
+                                  </>
+                                )}
                               </small>
                               <RichMarkdown>{turn.answer}</RichMarkdown>
+                              <CopyButton text={turn.answer} label="답변 복사" />
                             </div>
                           )}
                           {turn.target === "both" &&
@@ -1005,7 +1262,7 @@ export default function Page() {
                         label="후속 질문"
                         compact
                         value={message}
-                        disabled={project.status !== "complete" || messageBusy}
+                        disabled={!canChat || messageBusy}
                         onChange={(value) => {
                           setMessage(value);
                           saveLocal(`chat:${project.id}`, value);
@@ -1014,9 +1271,13 @@ export default function Page() {
                         maxLength={10000}
                         required
                         placeholder={
-                          project.status === "complete"
-                            ? "이 연구에 이어서 질문하거나, 다음 작업을 요청하세요."
-                            : "초기 연구가 완료되면 대화를 시작할 수 있습니다. 진행 중에는 토론 탭에서 개입할 수 있습니다."
+                          canChat
+                            ? project.status === "complete"
+                              ? "이 연구에 이어서 질문하거나, 다음 작업을 요청해 보세요."
+                              : "연구가 중간에 멈췄지만, 지금까지 결과로 질문할 수 있어요."
+                            : project.status === "running" || project.status === "queued"
+                              ? "연구가 진행 중이에요. 진행 중에는 과정 탭의 개입 메모를 써 주세요."
+                              : "아직 대화할 연구 결과가 없어요. 먼저 이어서 실행해 주세요."
                         }
                         onSubmitShortcut={() => void sendMessage()}
                       />
@@ -1026,7 +1287,7 @@ export default function Page() {
                           <select
                             id="messageTarget"
                             value={messageTarget}
-                            disabled={project.status !== "complete" || messageBusy}
+                            disabled={!canChat || messageBusy}
                             onChange={(e) =>
                               setMessageTarget(
                                 e.target.value as "GPT" | "Claude" | "both",
@@ -1072,11 +1333,7 @@ export default function Page() {
                         )}
                         <button
                           className="primary"
-                          disabled={
-                            project.status !== "complete" ||
-                            messageBusy ||
-                            !message.trim()
-                          }
+                          disabled={!canChat || messageBusy || !message.trim()}
                         >
                           {messageBusy ? "저장 중…" : "보내기 ↗"}
                         </button>
@@ -1128,12 +1385,18 @@ export default function Page() {
                     <div className="sectionHeading">
                       <div>
                         <h2>
-                          {project.strategy === "codraft" ? "GPT ↔ Claude 공동 작업" : "GPT ↔ Claude 토론"}
+                          {project.strategy === "codraft"
+                            ? "GPT ↔ Claude 공동 작업"
+                            : project.strategy === "relay"
+                              ? "Claude ↔ GPT 탐색 릴레이"
+                              : "GPT ↔ Claude 토론"}
                         </h2>
                         <p className="help">
                           {project.strategy === "codraft"
                             ? "각자 초안 → 합본 → 번갈아 수정 순서로, 누가 무엇을 왜 고쳤는지 대화처럼 보여줍니다."
-                            : "라운드마다 독립 조사 → 상호비판 → 반박 순서로 두 모델의 대화를 나란히 보여줍니다."}
+                            : project.strategy === "relay"
+                              ? "Claude와 GPT가 번갈아 앞 차례 자료를 검토해 빼고, 빈틈을 채우고, 유망한 흐름을 더 파고들어요."
+                              : "라운드마다 독립 조사 → 상호비판 → 반박 순서로 두 모델의 대화를 나란히 보여줍니다."}
                         </p>
                       </div>
                       <span>
@@ -1165,7 +1428,7 @@ export default function Page() {
                 {tab === "claims" && (
                   <>
                     <div className="sectionHeading">
-                      <h2>Claim & evidence ledger</h2>
+                      <h2>주장 · 근거 원장</h2>
                       <span>{project.claims.length}개 주장</span>
                     </div>
                     <p className="help">
@@ -1173,9 +1436,16 @@ export default function Page() {
                       원문이 주장을 입증하는지는 별도 검토가 필요합니다.
                       확신도는 모델의 자체 평가입니다.
                     </p>
+                    <ExclusionList project={project} />
                     {!project.claims.length && (
                       <p className="empty">
-                        첫 반박 단계가 끝나면 주장 원장이 표시됩니다.
+                        {project.status === "running" || project.status === "queued"
+                          ? project.strategy === "codraft"
+                            ? "초안을 합치고 나면 주장 원장이 보여요."
+                            : project.strategy === "relay"
+                              ? "첫 탐색 차례가 끝나면 주장 원장이 보여요."
+                              : "첫 반박 단계가 끝나면 주장 원장이 보여요."
+                          : "기록된 주장이 없어요."}
                       </p>
                     )}
                     {project.claims.map((c) => (
@@ -1257,17 +1527,15 @@ export default function Page() {
                     <>
                       <div className="sectionHeading">
                         <h2>최종 종합 보고서</h2>
-                        <button
-                          className="primary"
-                          onClick={() =>
-                            download(
-                              `research-${project.id}.md`,
-                              project.report!,
-                            )
-                          }
-                        >
-                          Markdown 다운로드 ↓
-                        </button>
+                        <span className="reportActions">
+                          <CopyButton text={project.report} label="보고서 복사" />
+                          <button
+                            className="primary"
+                            onClick={() => download(`research-${project.id}.md`, project.report!)}
+                          >
+                            Markdown 다운로드
+                          </button>
+                        </span>
                       </div>
                       <article className="report">
                         <RichMarkdown>{project.report}</RichMarkdown>
@@ -1275,11 +1543,20 @@ export default function Page() {
                     </>
                   ) : (
                     <div className="empty">
-                      <h2>연구를 종합하고 있습니다.</h2>
-                      <p>
-                        연구가 종료되면 미해결 질문과 출처를 포함한 보고서가
-                        표시됩니다.
-                      </p>
+                      {project.status === "running" || project.status === "queued" ? (
+                        <>
+                          <h2>연구가 진행 중이에요.</h2>
+                          <p>연구가 끝나면 미해결 질문과 출처를 담은 보고서가 여기에 보여요.</p>
+                        </>
+                      ) : (
+                        <>
+                          <h2>최종 보고서가 없어요.</h2>
+                          <p>
+                            보고서 단계 전에 멈췄어요. 이어서 실행하거나, 지금까지 결과로 대화 탭에서
+                            질문해 보세요.
+                          </p>
+                        </>
+                      )}
                     </div>
                   ))}
               </section>
