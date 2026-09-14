@@ -72,11 +72,11 @@ npm run build
 
 ### 5. 커밋과 Push
 
-커밋 메시지는 무엇을 바꿨는지 짧게 적습니다.
+커밋 메시지는 [Conventional Commits](https://www.conventionalcommits.org/ko/v1.0.0/) 형식 `type(scope): 제목`을 따릅니다. type·scope 목록과 예시는 [커밋 컨벤션](docs/COMMIT_CONVENTION.md)을 보세요.
 
 ```bash
 git add <바꾼 파일>
-git commit -m "fix: Claude 로그인 확인 오류 메시지 개선"
+git commit -m "fix(cli): Claude 로그인 확인 오류 메시지 개선"
 git push origin feat/짧은-설명
 ```
 
