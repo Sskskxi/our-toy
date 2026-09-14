@@ -61,6 +61,11 @@ test("Claude structured response validated and sources remain unverified", async
     "claude-opus-5",
   );
   assert.equal(result.tokens, 3);
+  const cached = decodeClaude(
+    JSON.stringify({ subtype: "success", structured_output: r.answer, usage: { input_tokens: 1, cache_read_input_tokens: 900, cache_creation_input_tokens: 90, output_tokens: 9 } }),
+    "claude-opus-5",
+  );
+  assert.equal(cached.tokens, 1000, "cached prompt tokens are counted");
   assert.equal(result.sessionId, "123e4567-e89b-42d3-a456-426614174000");
   assert.deepEqual(result.observedUrls, []);
   assert.throws(() =>
@@ -71,7 +76,7 @@ test("Claude structured response validated and sources remain unverified", async
   );
 });
 
-test("subscription CLI arguments create and resume persistent project sessions", () => {
+test("subscription CLI calls keep no session unless resuming a legacy one", () => {
   const initial = buildCodexArgs({
     model: "gpt-5.6-sol",
     effort: "high",
@@ -79,7 +84,7 @@ test("subscription CLI arguments create and resume persistent project sessions",
     schemaPath: "/tmp/schema.json",
     output: "/tmp/output.json",
   });
-  assert.equal(initial.includes("--ephemeral"), false);
+  assert.equal(initial.includes("--ephemeral"), true);
   assert.ok(initial.includes("gpt-5.6-sol"));
   assert.ok(initial.includes('model_reasoning_effort="high"'));
   const resumed = buildCodexArgs({
@@ -103,6 +108,9 @@ test("subscription CLI arguments create and resume persistent project sessions",
   });
   assert.ok(claude.includes("--resume"));
   assert.equal(claude.includes("--no-session-persistence"), false);
+  const fresh = buildClaudeArgs({ model: "claude-opus-5", effort: "high", search: false, schema: "{}" });
+  assert.ok(fresh.includes("--no-session-persistence"));
+  assert.equal(fresh.includes("--resume") || fresh.includes("--session-id"), false);
 });
 
 test("wire schema works across CLI dialects while local validation remains strict", () => {

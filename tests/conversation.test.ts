@@ -14,7 +14,7 @@ process.env.MOCK_DELAY_MS = "0";
 function completedProject(): Project {
   const p = create({
     topic: "공공 에이전트 권한 정책의 후속 검토",
-    referenceText: "후속 대화에 다시 보내면 안 되는 원문",
+    referenceText: "후속 대화 참고 원문",
     attachments: [{ name: "private.md", text: "첨부 원문" }],
     mode: "mock",
     maxRounds: 1,
@@ -28,7 +28,7 @@ function completedProject(): Project {
   return p;
 }
 
-test("one project conversation can target GPT, Claude, or both and keeps provider sessions", async () => {
+test("one project conversation can target GPT, Claude, or both without resuming CLI sessions", async () => {
   const p = completedProject();
   const seen: Request[] = [];
   const spy: Provider = async (request) => {
@@ -41,7 +41,11 @@ test("one project conversation can target GPT, Claude, or both and keeps provide
   assert.equal(gptTurn.status, "complete");
   assert.equal(seen.length, 1);
   assert.equal(seen[0].actor, "GPT");
-  assert.equal(seen[0].sessionId, "mock-gpt-session");
+  // Legacy saved sessions are ignored: every call is self-contained.
+  assert.equal(seen[0].sessionId, undefined);
+  const ctx = seen[0].context as { projectReport: string; userReferences?: { files: unknown[] } };
+  assert.match(ctx.projectReport, /저장된 연구 보고서/);
+  assert.equal(ctx.userReferences?.files.length, 1);
 
   const bothTurn = enqueueMessage(p, { message: "두 모델이 각각 반론을 제시해줘", target: "both" });
   await runConversation(p, bothTurn.id, spy, () => {});
@@ -55,10 +59,13 @@ test("one project conversation can target GPT, Claude, or both and keeps provide
   assert.ok(bothTurn.synthesis);
   assert.ok(bothTurn.answer);
 
+  // Without resumed sessions, follow-ups carry the saved report and capped
+  // references; the synthesis step merges drafts and needs no raw references.
   for (const request of bothCalls) {
     const context = JSON.stringify(request.context);
-    assert.doesNotMatch(context, /후속 대화에 다시 보내면 안 되는 원문|첨부 원문/);
     assert.match(context, /저장된 연구 보고서/);
+    if (request.stage === "conversation") assert.match(context, /후속 대화 참고 원문/);
+    else assert.doesNotMatch(context, /첨부 원문/);
   }
 });
 

@@ -246,25 +246,34 @@ test.after(() => {
 });
 
 
-test("reference files persist and seed each model session once", async () => {
+test("references go to every evidence stage without resuming sessions", async () => {
   const references = { referenceText: "연구 배경 메모", attachments: [{ name: "policy.md", text: "검토 대상 정책 내용" }] };
   const p = create({ ...input, ...references, maxRounds: 1, minRounds: 1 });
   const seen: Request[] = [];
   await run(p, async r => { seen.push(r); return mock(r); }, () => save(p));
   assert.equal(p.status, "complete");
   assert.equal(seen.length, 8);
+  assert.ok(seen.every((r) => r.sessionId === undefined));
   const withReferences = seen.filter((r) =>
     Boolean((r.context as { userReferences?: unknown }).userReferences),
   );
-  assert.deepEqual(withReferences.map((r) => [r.actor, r.stage]), [
-    ["GPT", "plan"],
+  // Critique, rebuttal and synthesis work from peer answers, not raw references.
+  assert.deepEqual(withReferences.map((r) => [r.actor, r.stage]).sort(), [
     ["Claude", "research"],
+    ["GPT", "plan"],
+    ["GPT", "research"],
   ]);
   for (const r of withReferences)
     assert.deepEqual((r.context as { userReferences: unknown }).userReferences, {
       text: references.referenceText,
       files: references.attachments,
     });
+  const { referenceContext } = await import("../lib/engine");
+  const long = { ...p, referenceText: "가".repeat(100), attachments: [{ name: "a.md", text: "나".repeat(100) }] };
+  const capped = referenceContext(long, "revise", 150).userReferences!;
+  assert.equal(capped.text.length, 100);
+  assert.match(capped.files[0].text, /이하 생략/);
+  assert.deepEqual(referenceContext(long, "merge"), {});
   assert.deepEqual(get(p.id)!.attachments, references.attachments);
   // PDFs arrive as text extracted in the browser; other binaries stay rejected.
   assert.ok(create({...input, attachments: [{name: "file.pdf", text: "[1쪽]\n추출된 텍스트"}]}));

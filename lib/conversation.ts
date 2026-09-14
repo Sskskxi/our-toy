@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { messageSchema, type Actor, type MessageInput, type Project, type Provider, type Result, type Stage } from "./types";
 import { provider } from "./provider";
+import { referenceContext, withRetry } from "./engine";
 import { save } from "./store";
 
 const now = () => new Date().toISOString();
@@ -28,7 +29,11 @@ export function enqueueMessage(p: Project, raw: MessageInput) {
   return turn;
 }
 
-export function buildConversationContext(p: Project, turnId: string) {
+export function buildConversationContext(
+  p: Project,
+  turnId: string,
+  { references = true } = {},
+) {
   const turns = p.conversation?.turns ?? [];
   const current = turns.find((turn) => turn.id === turnId);
   return {
@@ -51,7 +56,8 @@ export function buildConversationContext(p: Project, turnId: string) {
       })),
     currentMessage: current?.userText ?? "",
     continuity:
-      "This is a continuation of one locally persisted project conversation. Reference text and attachment bodies were supplied during the initial research and are intentionally not repeated here.",
+      "This continues one locally persisted project conversation. Each call starts without prior model memory: rely on the report, ledger, rolling memory, recent turns and user references given here.",
+    ...(references ? referenceContext(p, "conversation", 20000) : {}),
   };
 }
 
@@ -97,7 +103,7 @@ export async function runConversation(
     p.calls.push(entry);
     record();
     try {
-      const result = await callProvider({
+      const result = await withRetry(() => callProvider({
         actor,
         stage,
         round: p.rounds.length,
@@ -108,12 +114,11 @@ export async function runConversation(
         effort: activeTurn.models?.[actor]?.effort ?? p.models?.[actor]?.effort,
         mode: p.mode,
         projectId: p.id,
-        sessionId: p.providerSessions?.[actor],
+      }), (attempt, error) => {
+        entry.error = `일시적 실패로 자동 재시도 ${attempt}: ${error.message}`;
+        record();
       });
-      if (result.sessionId) {
-        p.providerSessions ??= {};
-        p.providerSessions[actor] = result.sessionId;
-      }
+      entry.error = undefined;
       entry.result = result;
       entry.status = "complete";
       p.tokens += result.tokens;
@@ -149,7 +154,7 @@ export async function runConversation(
         p.stage = "두 모델 답변 공동 정리 중";
         record();
         turn.synthesis = await call("GPT", "conversation-synthesis", {
-          ...buildConversationContext(p, turn.id),
+          ...buildConversationContext(p, turn.id, { references: false }),
           drafts: {
             GPT: turn.responses.GPT?.answer,
             Claude: turn.responses.Claude?.answer,

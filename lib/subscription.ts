@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { CliFailure, classifyFailure, cliFailure, reportedErrors, sanitizeDetail, stageTimeout } from "./cli-errors";
 import { answerSchema, modelsSchema, SEARCH_STAGES, type Request, type Result } from "./types";
 
 // Only OS runtime variables reach the official clients. Never inherit API keys,
@@ -57,15 +57,15 @@ export function execute(
     children.add(p);
     let stdout = "",
       stderr = "",
-      failure = "";
+      failure: CliFailure | undefined;
     const timer = setTimeout(() => {
-      failure = "응답 시간 제한. 중간 기록을 보존했습니다.";
+      failure = new CliFailure(command, "timeout", `${Math.round(timeout / 1000)}초 초과`);
       terminate(p);
     }, timeout);
     p.stdout.on("data", (d) => {
       stdout += d;
-      if (stdout.length > 4000000) {
-        failure = "응답 크기 제한";
+      if (stdout.length > 16_000_000) {
+        failure = new CliFailure(command, "output", "출력이 16MB를 넘었습니다");
         terminate(p);
       }
     });
@@ -78,25 +78,15 @@ export function execute(
       clearTimeout(timer);
       children.delete(p);
       reject(
-        new Error(
-          `${command}: 공식 CLI를 실행하지 못했습니다. 설치와 PATH를 확인하세요.`,
-        ),
+        new CliFailure(command, "cli", "공식 CLI를 찾지 못했습니다. 설치와 PATH를 확인하세요"),
       );
     });
     p.on("close", (code) => {
       clearTimeout(timer);
       children.delete(p);
-      if (code !== 0 || failure) {
-        const msg = stdout + " " + stderr;
-        const reason =
-          failure ||
-          (/rate.limit|usage.limit|limit.reached|quota/i.test(msg)
-            ? "구독 사용량 제한에 도달했습니다. 한도가 초기화된 뒤 이어서 실행하세요."
-            : /auth|log.?in|token|401/i.test(msg)
-              ? "구독 인증을 확인하세요. 터미널에서 다시 로그인해야 할 수 있습니다."
-              : "CLI 실행 실패. 터미널에서 공식 도구의 상태를 확인하세요.");
-        reject(new Error(`${command}: ${reason} (API 자동 전환 없음)`));
-      } else resolve(stdout);
+      if (failure) reject(failure);
+      else if (code !== 0) reject(cliFailure(command, stdout, stderr));
+      else resolve(stdout);
     });
   });
 }
@@ -106,19 +96,33 @@ export function wireSchema() {
   );
 }
 export function decodeClaude(raw: string, model: string): Result {
-  const d = JSON.parse(raw);
-  if (d.is_error || d.subtype !== "success")
-    throw new Error(
-      "Claude 구독 실행이 완료되지 않았습니다. API로 전환하지 않습니다.",
-    );
-  const answer = answerSchema.parse(
-    d.structured_output ?? JSON.parse(d.result),
-  );
+  let d;
+  try {
+    d = JSON.parse(raw);
+  } catch {
+    throw new CliFailure("claude", "output", "JSON이 아닌 출력");
+  }
+  if (d.is_error || d.subtype !== "success") {
+    const text = reportedErrors(JSON.stringify({ ...d, is_error: true }), "");
+    const kind = classifyFailure(text);
+    throw new CliFailure("claude", kind === "unknown" ? "output" : kind, sanitizeDetail(text));
+  }
+  let answer;
+  try {
+    answer = answerSchema.parse(d.structured_output ?? JSON.parse(d.result));
+  } catch {
+    throw new CliFailure("claude", "output", "구조화된 답변 형식이 다릅니다");
+  }
   return {
     answer,
     model,
     observedUrls: [],
-    tokens: (d.usage?.input_tokens || 0) + (d.usage?.output_tokens || 0),
+    // Cached prompt tokens still count toward subscription limits and latency.
+    tokens:
+      (d.usage?.input_tokens || 0) +
+      (d.usage?.cache_read_input_tokens || 0) +
+      (d.usage?.cache_creation_input_tokens || 0) +
+      (d.usage?.output_tokens || 0),
     sessionId: typeof d.session_id === "string" ? d.session_id : undefined,
   };
 }
@@ -203,15 +207,16 @@ export function buildCodexArgs(options: {
         options.sessionId,
         "-",
       ]
-    : ["exec", ...common, "--sandbox", "read-only", "-"];
+    : ["exec", ...common, "--ephemeral", "--sandbox", "read-only", "-"];
 }
 export function buildClaudeArgs(options: {
   model: string;
   effort: string;
   search: boolean;
   schema: string;
-  sessionId: string;
-  resume: boolean;
+  /** Only for resuming legacy project sessions; new calls keep no session. */
+  sessionId?: string;
+  resume?: boolean;
 }) {
   const args = [
     "-p",
@@ -227,11 +232,19 @@ export function buildClaudeArgs(options: {
     options.search ? "WebSearch,WebFetch" : "",
     "--safe-mode",
     "--strict-mcp-config",
-    options.resume ? "--resume" : "--session-id",
-    options.sessionId,
+    ...(options.resume && options.sessionId
+      ? ["--resume", options.sessionId]
+      : ["--no-session-persistence"]),
   ];
   if (options.search) args.push("--allowedTools", "WebSearch,WebFetch");
   return args;
+}
+function parseCodexAnswer(file: string) {
+  try {
+    return answerSchema.parse(JSON.parse(fs.readFileSync(file, "utf8")));
+  } catch {
+    throw new CliFailure("codex", "output", "구조화된 답변 파일이 없거나 형식이 다릅니다");
+  }
 }
 export async function subscription(
   r: Request,
@@ -244,7 +257,9 @@ export async function subscription(
     SEARCH_STAGES.includes(r.stage) &&
     process.env.ENABLE_WEB_SEARCH !== "false";
   const previousSession = checkedSession(r.sessionId);
-  const cwd = sessionWorkdir(r, dir);
+  // Each call is self-contained: the prompt carries the document, ledger and
+  // recent turns, so resuming a CLI thread would only resend its whole history.
+  const cwd = previousSession ? sessionWorkdir(r, dir) : dir;
   try {
     const schema = wireSchema();
     let result: Result;
@@ -260,12 +275,7 @@ export async function subscription(
         output,
         sessionId: previousSession,
       });
-      const raw = await execute(
-        "codex",
-        args,
-        cwd,
-        prompt,
-      );
+      const raw = await execute("codex", args, cwd, prompt, stageTimeout(r.stage));
       const events = raw.split("\n").flatMap((line) => {
         try {
           return [JSON.parse(line)];
@@ -274,39 +284,43 @@ export async function subscription(
         }
       });
       if (events.some((e) => e.type === "turn.failed" || e.type === "error"))
-        throw new Error("Codex 응답 실패. API로 전환하지 않습니다.");
+        throw cliFailure("codex", raw, "");
       const usage = [...events]
         .reverse()
         .find((e) => e.type === "turn.completed")?.usage;
-      const sessionId =
-        previousSession ??
-        events.find((e) => e.type === "thread.started")?.thread_id;
-      if (!sessionId || !UUID.test(sessionId))
-        throw new Error("Codex 대화 세션을 저장하지 못했습니다.");
+      const sessionId = previousSession;
       result = {
-        answer: answerSchema.parse(JSON.parse(fs.readFileSync(output, "utf8"))),
+        answer: parseCodexAnswer(output),
         model,
         observedUrls: [],
         tokens: (usage?.input_tokens || 0) + (usage?.output_tokens || 0),
         sessionId,
       };
     } else {
-      const auth = JSON.parse(
-        await execute("claude", ["auth", "status"], dir, "", 15000),
-      );
-      if (!auth.loggedIn || auth.authMethod !== "claude.ai")
-        throw new Error("Claude 구독 로그인이 필요합니다: claude auth login");
-      const claudeSession = previousSession ?? randomUUID();
+      // A slow or failing status check must not block the call; only a clear
+      // "not logged in / not a subscription" answer does.
+      const auth = await execute("claude", ["auth", "status"], dir, "", 30000)
+        .then((out) => JSON.parse(out))
+        .catch(() => undefined);
+      if (auth && (!auth.loggedIn || auth.authMethod !== "claude.ai"))
+        throw new CliFailure(
+          "claude",
+          "auth",
+          auth.loggedIn ? "claude.ai 구독 로그인이 아닙니다" : "claude auth login 필요",
+        );
       const args = buildClaudeArgs({
         model,
         effort,
         search,
         schema,
-        sessionId: claudeSession,
+        sessionId: previousSession,
         resume: Boolean(previousSession),
       });
-      result = decodeClaude(await execute("claude", args, cwd, prompt), model);
-      result.sessionId ??= claudeSession;
+      result = decodeClaude(
+        await execute("claude", args, cwd, prompt, stageTimeout(r.stage)),
+        model,
+      );
+      result.sessionId = previousSession;
     }
     if (r.stage === "plan" && !result.answer.questions.length)
       throw new Error("연구 질문 분해 결과가 비어 있습니다.");
