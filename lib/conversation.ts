@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { messageSchema, type Actor, type MessageInput, type Project, type Provider, type Result, type Stage } from "./types";
 import { provider } from "./provider";
 import { referenceContext, withRetry } from "./engine";
-import { save } from "./store";
+import { get, save } from "./store";
+import { CancelledError, clearCancel, isCancelRequested, throwIfCancelled } from "./control";
 
 const now = () => new Date().toISOString();
 
@@ -29,6 +30,25 @@ export function enqueueMessage(p: Project, raw: MessageInput) {
   return turn;
 }
 
+/** Pull turns added or retried on disk into the in-memory project. */
+export function mergeTurnsFromDisk(p: Project, activeTurnId: string) {
+  let disk: Project | undefined;
+  try {
+    disk = get(p.id);
+  } catch {
+    return;
+  }
+  if (!disk) return;
+  const mine = new Map(p.conversation.turns.map((t) => [t.id, t]));
+  for (const turn of disk.conversation?.turns ?? []) {
+    const current = mine.get(turn.id);
+    if (!current) p.conversation.turns.push(turn);
+    else if (turn.id !== activeTurnId && turn.updatedAt > current.updatedAt)
+      Object.assign(current, turn);
+  }
+  p.conversation.turns.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
 export function buildConversationContext(
   p: Project,
   turnId: string,
@@ -37,7 +57,12 @@ export function buildConversationContext(
   const turns = p.conversation?.turns ?? [];
   const current = turns.find((turn) => turn.id === turnId);
   return {
-    projectReport: (p.report ?? "보고서 없음").slice(0, 16000),
+    projectReport: (p.report ?? "최종 보고서 없음 (연구가 중간에 멈춤)").slice(0, 16000),
+    // A stopped co-draft still has its latest shared document.
+    ...(!p.report && p.documents?.length
+      ? { latestSharedDocument: p.documents.at(-1)!.markdown.slice(0, 16000) }
+      : {}),
+    projectStatus: p.status,
     claimLedger: p.claims.slice(0, 40).map((claim) => ({
       id: claim.id,
       statement: claim.statement,
@@ -84,13 +109,11 @@ export async function runConversation(
   const activeTurn = turn;
   const record = () => {
     activeTurn.updatedAt = now();
+    // The web server may have queued new messages or retries while this turn
+    // ran; merge them in so this save does not overwrite them.
+    if (persist === save) mergeTurnsFromDisk(p, activeTurn.id);
     persist(p);
   };
-  turn.status = "running";
-  turn.attempts += 1;
-  turn.error = undefined;
-  p.stage = "후속 대화 응답 중";
-  record();
 
   async function call(actor: Actor, stage: Stage, context: unknown): Promise<Result> {
     const entry: Project["calls"][number] = {
@@ -134,6 +157,12 @@ export async function runConversation(
   }
 
   try {
+    turn.status = "running";
+    turn.attempts += 1;
+    turn.error = undefined;
+    p.stage = "후속 대화 응답 중";
+    record();
+    throwIfCancelled(p.id);
     const actors: Actor[] =
       turn.target === "both" ? ["GPT", "Claude"] : [turn.target];
     const missing = actors.filter((actor) => !turn.responses[actor]);
@@ -165,15 +194,26 @@ export async function runConversation(
     } else {
       turn.answer = turn.responses[turn.target]?.answer.summary;
     }
-    if (!turn.answer?.trim()) throw new Error("후속 대화 답변이 비어 있습니다.");
+    if (!turn.answer?.trim()) {
+      // Drop the empty responses so a retry calls the models again.
+      turn.responses = {};
+      turn.synthesis = undefined;
+      throw new Error("후속 대화 답변이 비어 있습니다.");
+    }
     turn.status = "complete";
     refreshMemory(p);
     p.stage = "연구 완료 · 대화 가능";
   } catch (error) {
     turn.status = "failed";
-    turn.error = error instanceof Error ? error.message : "후속 대화 실행 실패";
-    p.stage = "대화 응답 오류 · 재시도 가능";
+    const cancelled = error instanceof CancelledError || isCancelRequested(p.id);
+    turn.error = cancelled
+      ? "사용자가 중지했습니다. 다시 시도할 수 있습니다."
+      : error instanceof Error
+        ? error.message
+        : "후속 대화 실행 실패";
+    p.stage = cancelled ? "대화 중지 · 재시도 가능" : "대화 응답 오류 · 재시도 가능";
   }
+  clearCancel(p.id);
   record();
   return p;
 }

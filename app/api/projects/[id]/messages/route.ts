@@ -26,9 +26,16 @@ export async function POST(
     const p = get((await params).id);
     if (!p)
       return NextResponse.json({ error: "프로젝트가 없습니다." }, { status: 404 });
-    if (p.status !== "complete")
+    // Follow-ups work on any finished run, including failed or stopped ones
+    // with partial results, but never while the research itself is running.
+    if (p.status === "running" || p.status === "queued")
       return NextResponse.json(
-        { error: "초기 연구가 완료된 뒤 대화를 시작할 수 있습니다." },
+        { error: "연구가 진행 중입니다. 진행 중에는 토론 탭의 개입 메모를 쓰세요." },
+        { status: 409 },
+      );
+    if (!p.calls.some((c) => c.status === "complete"))
+      return NextResponse.json(
+        { error: "아직 대화할 연구 결과가 없습니다. 이어서 실행해 주세요." },
         { status: 409 },
       );
     const turn = enqueueMessage(p, input.data);

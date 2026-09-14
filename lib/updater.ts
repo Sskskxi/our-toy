@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { dataDir, list } from "./store";
+import { briefs, dataDir } from "./store";
 
 // The web server only checks for updates and writes a request file. The
 // launcher (scripts/launch.mjs), which is not restarted, stops the app, runs a
@@ -50,6 +50,17 @@ function git(args: string[], timeout = 20000) {
 }
 
 let lastFetch = 0;
+const STALE_REQUEST_MS = 2 * 60 * 1000;
+
+/** A request the launcher never picked up (e.g. app run without it) expires. */
+function pendingRequest() {
+  const file = path.join(dataDir(), UPDATE_REQUEST);
+  try {
+    if (Date.now() - fs.statSync(file).mtimeMs < STALE_REQUEST_MS) return true;
+    fs.rmSync(file, { force: true });
+  } catch {}
+  return false;
+}
 
 function readJson<T>(file: string): T | undefined {
   try {
@@ -66,9 +77,12 @@ export async function updateStatus({ refresh = false } = {}): Promise<UpdateStat
     behind: 0,
     commits: [],
     dirty: false,
-    runningResearch: list().filter((p) => p.status === "running").length,
+    // Queued work or a follow-up answer would also be killed by the restart.
+    runningResearch: briefs().filter(
+      (p) => p.status === "running" || p.status === "queued" || p.turnActive,
+    ).length,
     canUpdate: false,
-    pending: fs.existsSync(path.join(dataDir(), UPDATE_REQUEST)),
+    pending: pendingRequest(),
     checkedAt: new Date().toISOString(),
     lastResult: readJson(path.join(dataDir(), UPDATE_RESULT)),
   };
@@ -112,7 +126,7 @@ export async function updateStatus({ refresh = false } = {}): Promise<UpdateStat
   status.reason ??= status.dirty
     ? "코드에 커밋하지 않은 변경이 있어 자동 업데이트를 할 수 없습니다."
     : status.runningResearch
-      ? "진행 중인 연구가 끝난 뒤 업데이트할 수 있습니다."
+      ? "진행 중이거나 대기 중인 연구·답변이 끝난 뒤 업데이트할 수 있습니다."
       : status.pending
         ? "업데이트를 적용하는 중입니다."
         : undefined;
@@ -123,10 +137,14 @@ export async function updateStatus({ refresh = false } = {}): Promise<UpdateStat
 export async function requestUpdate() {
   const status = await updateStatus({ refresh: true });
   if (!status.canUpdate) throw new Error(status.reason ?? "이미 최신 버전입니다.");
-  fs.writeFileSync(
-    path.join(dataDir(), UPDATE_REQUEST),
-    JSON.stringify({ requestedAt: new Date().toISOString(), from: status.current }),
-    { mode: 0o600, flag: "wx" },
-  );
+  try {
+    fs.writeFileSync(
+      path.join(dataDir(), UPDATE_REQUEST),
+      JSON.stringify({ requestedAt: new Date().toISOString(), from: status.current }),
+      { mode: 0o600, flag: "wx" },
+    );
+  } catch {
+    throw new Error("업데이트를 적용하는 중입니다. 잠시 뒤 다시 확인하세요.");
+  }
   return status;
 }

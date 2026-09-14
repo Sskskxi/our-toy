@@ -1,22 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rejectUnsafe } from "@/lib/http";
 import { briefs, create } from "@/lib/store";
+import { workerAlive } from "@/lib/control";
 import { inputSchema } from "@/lib/types";
-import { modelDefaults } from "@/lib/subscription";
+import { modelDefaults, resolveModel } from "@/lib/subscription";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const unsafe = rejectUnsafe(req, { json: false });
   if (unsafe) return unsafe;
   return NextResponse.json({
-    projects: briefs().map(({ id, topic, status, mode, createdAt, stage, queuedTurnAt }) => ({
+    workerAlive: workerAlive(),
+    projects: briefs().map(({ id, topic, title, status, mode, createdAt, updatedAt, stage, queuedTurnAt, turnActive }) => ({
       id,
       topic,
+      title,
+      updatedAt,
       status,
       mode,
       createdAt,
       stage,
-      busy: status === "running" || status === "queued" || Boolean(queuedTurnAt),
+      busy: status === "running" || status === "queued" || Boolean(queuedTurnAt) || turnActive,
     })),
     defaultMode: process.env.RESEARCH_MODE === "mock" ? "mock" : "subscription",
     liveReady: true,
@@ -42,7 +46,16 @@ export async function POST(req: NextRequest) {
         },
         { status: 400 },
       );
-    return NextResponse.json(create(parsed.data), { status: 201 });
+    // Record the models actually used, so later .env changes do not
+    // silently change what an existing project shows or resumes with.
+    const input = parsed.data;
+    if (input.mode === "subscription") {
+      const models = { ...input.models };
+      for (const actor of ["GPT", "Claude"] as const)
+        models[actor] = resolveModel({ actor, ...input.models?.[actor] }) as typeof models.GPT;
+      input.models = models;
+    }
+    return NextResponse.json(create(input), { status: 201 });
   } catch {
     return NextResponse.json(
       {

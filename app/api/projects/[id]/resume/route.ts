@@ -22,6 +22,11 @@ export async function POST(
         { error: "오류로 멈춘 연구만 이어서 실행할 수 있습니다." },
         { status: 409 },
       );
+    if (p.conversation.turns.some((t) => t.status === "running" || t.status === "queued"))
+      return NextResponse.json(
+        { error: "후속 대화 답변이 끝난 뒤 이어서 실행할 수 있습니다." },
+        { status: 409 },
+      );
     if (p.mode === "live")
       return NextResponse.json(
         { error: "직접 API 기록은 다시 실행할 수 없습니다." },

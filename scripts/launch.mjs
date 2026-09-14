@@ -143,6 +143,20 @@ async function applyUpdate() {
   } catch (e) {
     result.state = "failed";
     result.message = e instanceof Error ? e.message : "업데이트 실패";
+    // Roll back so a half-applied update (failed npm ci or build) can still start.
+    if (result.from) {
+      try {
+        const head = run("git", ["rev-parse", "--short", "HEAD"]);
+        if (head !== result.from) {
+          run("git", ["reset", "--hard", result.from]);
+          run("npm", ["ci"], 600000);
+          if (mode === "start") run("npm", ["run", "build"], 600000);
+          result.message += ` · ${result.from}로 되돌렸습니다`;
+        }
+      } catch (rollback) {
+        result.message += ` · 되돌리기 실패: ${rollback instanceof Error ? rollback.message : rollback}`;
+      }
+    }
   }
   result.finishedAt = new Date().toISOString();
   fs.writeFileSync(resultFile, JSON.stringify(result, null, 2), { mode: 0o600 });

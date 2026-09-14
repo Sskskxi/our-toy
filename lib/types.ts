@@ -21,9 +21,14 @@ export const interventionSchema = z.object({
 export type Intervention = z.infer<typeof interventionSchema> & {
   id: string;
   createdAt: string;
+  /** First delivery; kept for display and older records. */
   appliedAt?: string;
   appliedRound?: number;
   appliedStage?: Stage;
+  /** Per-model deliveries: a note for both models may reach them at different stages. */
+  deliveries?: { actor: Actor; stage: Stage; round: number; at: string }[];
+  /** The run ended before every target model received the note. */
+  expired?: boolean;
 };
 export const inputSchema = z
   .object({
@@ -171,6 +176,8 @@ export type Conversation = {
 };
 export type Project = Omit<Input, "mode" | "strategy"> & {
   mode: "mock" | "subscription" | "live";
+  /** Display name set by the user; the research topic stays unchanged. */
+  title?: string;
   /** Missing on projects created before shared drafts existed: those are debates. */
   strategy?: "codraft" | "debate";
   documents?: DocumentVersion[];

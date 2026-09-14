@@ -1,5 +1,27 @@
 import type { Request, Result, Answer } from "./types";
+import { CliFailure } from "./cli-errors";
+// MOCK_FAIL=stage[:actor[:kind[:times]]] makes mock runs fail like the real
+// CLIs, to try retries and resume without spending usage. kind: limit | auth |
+// transient | timeout (default limit). times: failures before succeeding
+// (default: always). Example: MOCK_FAIL=revise:GPT:transient:1
+const mockFailures = new Map<string, number>();
+function injectFailure(request: Request) {
+  const spec = process.env.MOCK_FAIL;
+  if (!spec) return;
+  const [stage, actor, kind = "limit", times] = spec.split(":");
+  if (stage !== request.stage || (actor && actor !== "*" && actor !== request.actor)) return;
+  // Counted per stage and model across rounds, so `times` means total failures.
+  const key = `${request.stage}|${request.actor}`;
+  const count = mockFailures.get(key) ?? 0;
+  if (times && count >= Number(times)) return;
+  mockFailures.set(key, count + 1);
+  const kinds = ["limit", "auth", "transient", "timeout"] as const;
+  const k = (kinds as readonly string[]).includes(kind) ? (kind as (typeof kinds)[number]) : "limit";
+  throw new CliFailure(request.actor === "GPT" ? "codex" : "claude", k, `MOCK_FAIL 모의 실패 (${k})`);
+}
+
 export async function mock(request: Request): Promise<Result> {
+  injectFailure(request);
   const { actor, stage, round, questions } = request;
   // Topics may be Markdown; mock sentences use a plain one-line title.
   const topic =

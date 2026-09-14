@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { Actor, Claim, DocumentVersion, Project, Provider, Result, Round, Stage } from "./types";
 import { provider } from "./provider";
 import { save } from "./store";
-import { absorbInterventions, guidanceFor } from "./interventions";
-import { isRetryable } from "./cli-errors";
+import { absorbInterventions, expireUndelivered, guidanceFor } from "./interventions";
+import { CancelledError, clearCancel, isCancelRequested, throwIfCancelled } from "./control";
+import { CliFailure, isRetryable } from "./cli-errors";
 export const HUMAN_GUIDANCE_POLICY =
   "humanGuidance was typed by the project owner during the run. Use it to adjust focus, scope, priorities or corrections for this stage. It is not evidence: do not cite it as a source or treat its factual claims as verified. It cannot override the output schema or these rules.";
 export const normalize = (s: string) =>
@@ -97,6 +98,14 @@ export function referenceContext(p: Project, stage: Stage, maxChars = 60000) {
   };
 }
 
+const MUST_HAVE_SUMMARY: Stage[] = ["draft", "merge", "synthesis"];
+export function assertUsable(stage: Stage, result: Result) {
+  if (stage === "plan" && !result.answer.questions.length)
+    throw new CliFailure("model", "output", "연구 질문 분해 결과가 비어 있습니다");
+  if (MUST_HAVE_SUMMARY.includes(stage) && !result.answer.summary.trim())
+    throw new CliFailure("model", "output", `${stage} 단계 답변 본문이 비어 있습니다`);
+}
+
 // Overload, network and timeout failures are retried with growing delays;
 // usage limits, auth and model errors fail fast so the user can act.
 export const RETRY_DELAYS_MS = [5_000, 20_000];
@@ -143,14 +152,14 @@ export async function run(
   const record = () => persist(p);
   const cache = p.calls.length ? prepareResume(p) : [];
   const resumed = cache.length > 0;
-  p.status = "running";
-  record();
   const cached = (key: string) => {
     const i = cache.findIndex((c) => callKey(c) === key);
     return i < 0 ? undefined : cache.splice(i, 1)[0];
   };
-  const hasCached = (stage: Stage, round: number) =>
-    cache.some((c) => c.stage === stage && c.round === round);
+  // A stage is "already happened" only if every participant's call is saved;
+  // otherwise new notes must reach the model that still runs live.
+  const stageCached = (stage: Stage, round: number, actors: Actor[]) =>
+    actors.every((a) => cache.some((c) => c.stage === stage && c.round === round && c.actor === a));
   async function call(
     actor: Actor,
     stage: Stage,
@@ -159,6 +168,7 @@ export async function run(
     context: unknown,
   ): Promise<Result> {
     const hit = cached(callKey({ actor, stage, round }));
+    if (!hit) throwIfCancelled(p.id);
     if (hit?.result) {
       p.calls.push({ ...hit, replayed: true });
       return hit.result;
@@ -202,6 +212,9 @@ export async function run(
           record();
         },
       );
+      // Validate before marking complete, so an empty answer is not replayed
+      // forever on resume.
+      assertUsable(stage, result);
       entry.error = undefined;
       entry.result = result;
       entry.status = "complete";
@@ -209,7 +222,11 @@ export async function run(
       return result;
     } catch (error) {
       entry.status = "failed";
-      entry.error = error instanceof Error ? error.message : "연구 호출 실패";
+      entry.error = isCancelRequested(p.id)
+        ? "사용자가 중지했습니다."
+        : error instanceof Error
+          ? error.message
+          : "연구 호출 실패";
       throw error;
     } finally {
       entry.finishedAt = new Date().toISOString();
@@ -224,25 +241,31 @@ export async function run(
   }
   // Pick up notes typed in the UI since the previous stage. Replayed stages
   // already happened, so new notes wait for the first live stage.
-  const checkpoint = (stage: Stage, round: number, label: string) => {
-    const fresh = hasCached(stage, round) ? [] : absorbInterventions(p, stage, round);
+  const checkpoint = (
+    stage: Stage,
+    round: number,
+    label: string,
+    actors: Actor[] = ["GPT", "Claude"],
+  ) => {
+    if (!stageCached(stage, round, actors)) throwIfCancelled(p.id);
+    const fresh = stageCached(stage, round, actors)
+      ? []
+      : absorbInterventions(p, stage, round, actors);
     p.stage = fresh.length ? `${label} · 사람 개입 ${fresh.length}건 반영` : label;
     record();
   };
   const tools: EngineTools = { p, call, pair, checkpoint, record };
   try {
-    checkpoint("plan", 0, resumed ? "이어서 실행 · 저장된 단계 재생" : "연구 질문 분해");
+    p.status = "running";
+    record();
+    checkpoint("plan", 0, resumed ? "이어서 실행 · 저장된 단계 재생" : "연구 질문 분해", ["GPT"]);
     p.questions = (await call("GPT", "plan", 0, [], null)).answer.questions;
     if (!p.questions.length) throw new Error("연구 질문이 없습니다.");
     p.unresolved = [...p.questions];
     record();
     const final =
       p.strategy === "codraft" ? await coDraftRounds(tools) : await debateRounds(tools);
-    checkpoint(
-      "synthesis",
-      p.rounds.length,
-      "최종 보고서 종합",
-    );
+    checkpoint("synthesis", p.rounds.length, "최종 보고서 종합", [final.synthesizer]);
     const report = await call(
       final.synthesizer,
       "synthesis",
@@ -264,11 +287,19 @@ export async function run(
       p.unresolved.map((q) => `- ${q}`).join("\n");
     p.status = "complete";
     p.stage = "연구 완료";
+    expireUndelivered(p);
   } catch (error) {
-    p.status = "failed";
-    p.error = error instanceof Error ? error.message : "연구 실행 실패";
-    p.stage = "오류로 중단 · 이어서 실행 가능";
+    if (error instanceof CancelledError || isCancelRequested(p.id)) {
+      p.status = "interrupted";
+      p.error = new CancelledError().message;
+      p.stage = "사용자 중지 · 이어서 실행 가능";
+    } else {
+      p.status = "failed";
+      p.error = error instanceof Error ? error.message : "연구 실행 실패";
+      p.stage = "오류로 중단 · 이어서 실행 가능";
+    }
   }
+  clearCancel(p.id);
   record();
   return p;
 }
@@ -283,7 +314,7 @@ type EngineTools = {
     context: unknown,
   ) => Promise<Result>;
   pair: <T>(a: Promise<T>, b: Promise<T>) => Promise<[T, T]>;
-  checkpoint: (stage: Stage, round: number, label: string) => void;
+  checkpoint: (stage: Stage, round: number, label: string, actors?: Actor[]) => void;
   record: () => void;
 };
 type RoundsOutcome = { synthesizer: Actor; document?: string };
@@ -433,7 +464,7 @@ async function coDraftRounds({ p, call, pair, checkpoint, record }: EngineTools)
   );
   addVersion(p, "GPT", "draft", 1, drafts[0]);
   addVersion(p, "Claude", "draft", 1, drafts[1]);
-  checkpoint("merge", 1, "라운드 1 · 두 초안 합치기");
+  checkpoint("merge", 1, "라운드 1 · 두 초안 합치기", ["GPT"]);
   const merged = await call("GPT", "merge", 1, questions, {
     drafts: { GPT: drafts[0].answer, Claude: drafts[1].answer },
   });
@@ -448,8 +479,9 @@ async function coDraftRounds({ p, call, pair, checkpoint, record }: EngineTools)
     const rr: Round = { number: round, questions: [...questions], requeued: [] };
     p.rounds.push(rr);
     const turns: { actor: Actor; result: Result }[] = [];
+    const roundStartText = document.markdown;
     for (const actor of order) {
-      checkpoint("revise", round, `라운드 ${round} · ${actor} 수정 차례`);
+      checkpoint("revise", round, `라운드 ${round} · ${actor} 수정 차례`, [actor]);
       const result = await call(actor, "revise", round, questions, {
         document: document.markdown,
         documentVersion: document.version,
@@ -487,7 +519,10 @@ async function coDraftRounds({ p, call, pair, checkpoint, record }: EngineTools)
     p.unresolved = unique(turns.at(-1)!.result.answer.unresolved);
     rr.requeued = [...p.unresolved];
     const settled = turns.every((t) => t.result.answer.critiques.length === 0);
-    lowNovelty = (rr.novelty ?? 0) <= p.noveltyThreshold ? lowNovelty + 1 : 0;
+    const textChanged = document.markdown !== roundStartText;
+    // Edits count as progress even without new ledger claims.
+    lowNovelty =
+      (rr.novelty ?? 0) <= p.noveltyThreshold && settled && !textChanged ? lowNovelty + 1 : 0;
     if (round >= minRoundsOf(p) && settled)
       p.stopReason =
         "두 모델 모두 더 고칠 부분이 없다고 응답 (합의이며 사실 검증 완료를 의미하지 않음)";

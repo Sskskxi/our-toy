@@ -59,35 +59,78 @@ export function addIntervention(id: string, raw: unknown): Intervention {
   return item;
 }
 
-/** Worker side: move inbox entries not yet seen into the project as applied. */
+const targetsOf = (note: Intervention): Actor[] =>
+  note.target === "both" ? ["GPT", "Claude"] : [note.target];
+
+function delivered(note: Intervention) {
+  // Records from before per-model delivery count as delivered once applied.
+  if (!note.deliveries) return note.appliedAt ? targetsOf(note) : [];
+  return note.deliveries.map((d) => d.actor);
+}
+
+export function isPendingNote(note: Intervention) {
+  if (note.expired) return false;
+  const got = delivered(note);
+  return targetsOf(note).some((a) => !got.includes(a));
+}
+
+/**
+ * Worker side, at a stage boundary: deliver notes to the models taking part in
+ * this stage. A note stays pending for any target model that has not run yet,
+ * so a Claude-only note is never used up by a GPT-only stage.
+ */
 export function absorbInterventions(
   p: Project,
   stage: Stage,
   round: number,
+  participants: Actor[] = ["GPT", "Claude"],
   inbox: Intervention[] = readInbox(p.id),
 ) {
   p.interventions ??= [];
-  const known = new Set(p.interventions.map((i) => i.id));
-  const fresh = inbox
-    .filter((i) => !known.has(i.id))
-    .map((i) => ({
-      ...i,
-      appliedAt: new Date().toISOString(),
-      appliedRound: round,
-      appliedStage: stage,
-    }));
-  p.interventions.push(...fresh);
+  const known = new Map(p.interventions.map((i) => [i.id, i]));
+  for (const item of inbox) if (!known.has(item.id)) {
+    const copy = { ...item };
+    p.interventions.push(copy);
+    known.set(copy.id, copy);
+  }
+  const at = new Date().toISOString();
+  const fresh: Intervention[] = [];
+  for (const note of p.interventions) {
+    if (!isPendingNote(note)) continue;
+    const got = delivered(note);
+    const now = targetsOf(note).filter((a) => participants.includes(a) && !got.includes(a));
+    if (!now.length) continue;
+    note.deliveries = [
+      ...(note.deliveries ?? []),
+      ...now.map((actor) => ({ actor, stage, round, at })),
+    ];
+    if (!note.appliedAt) {
+      note.appliedAt = at;
+      note.appliedStage = stage;
+      note.appliedRound = round;
+    }
+    fresh.push(note);
+  }
   return fresh;
 }
 
-/** Notes applied at this exact stage that the given model should see. */
+/** When a run completes, notes that never reached a model are marked as such. */
+export function expireUndelivered(p: Project, inbox: Intervention[] = readInbox(p.id)) {
+  p.interventions ??= [];
+  const known = new Set(p.interventions.map((i) => i.id));
+  for (const item of inbox) if (!known.has(item.id)) p.interventions.push({ ...item });
+  for (const note of p.interventions) if (isPendingNote(note)) note.expired = true;
+}
+
+/** Notes delivered to this model at this exact stage. */
 export function guidanceFor(p: Project, actor: Actor, stage: Stage, round: number) {
   return (p.interventions ?? [])
-    .filter(
-      (i) =>
-        i.appliedStage === stage &&
-        i.appliedRound === round &&
-        (i.target === "both" || i.target === actor),
+    .filter((i) =>
+      i.deliveries
+        ? i.deliveries.some((d) => d.actor === actor && d.stage === stage && d.round === round)
+        : i.appliedStage === stage &&
+          i.appliedRound === round &&
+          (i.target === "both" || i.target === actor),
     )
     .map((i) => i.text);
 }
