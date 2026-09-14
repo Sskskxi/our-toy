@@ -8,11 +8,13 @@
     "build": "next build --webpack",
     "start": "node scripts/launch.mjs start",
     "worker": "node --import tsx scripts/worker.ts",
+    "eval:quality": "node --import tsx scripts/eval-quality.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
+    "docx": "9.7.1",
     "dotenv": "^17.0.0",
     "next": "16.3.5",
     "pdfjs-dist": "6.3.289",
