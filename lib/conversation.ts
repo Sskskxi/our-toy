@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { messageSchema, type Actor, type MessageInput, type Project, type Provider, type Result, type Stage } from "./types";
 import { provider } from "./provider";
-import { referenceContext, retryNote, timeoutScaleFor, withRetry } from "./engine";
+import { callAdaptive, effortFor, referenceContext, timeoutScaleFor } from "./engine";
+import { modelDefaults } from "./subscription";
 import { planTurnRetry, TURN_RETRIES } from "./auto-resume";
 import { get, save } from "./store";
 import { CancelledError, clearCancel, isCancelRequested, throwIfCancelled } from "./control";
@@ -127,7 +128,12 @@ export async function runConversation(
     p.calls.push(entry);
     record();
     try {
-      const result = await withRetry((attempt) => callProvider({
+      const chosen =
+        activeTurn.models?.[actor]?.effort ??
+        p.models?.[actor]?.effort ??
+        (p.mode === "subscription" ? modelDefaults()[actor].effort : undefined);
+      entry.effort = effortFor(stage, chosen);
+      const { result, effort: used } = await callAdaptive((effort, attempt) => callProvider({
         actor,
         stage,
         round: p.rounds.length,
@@ -135,14 +141,15 @@ export async function runConversation(
         questions: [activeTurn.userText],
         context,
         model: activeTurn.models?.[actor]?.model ?? p.models?.[actor]?.model,
-        effort: activeTurn.models?.[actor]?.effort ?? p.models?.[actor]?.effort,
+        effort,
         mode: p.mode,
         projectId: p.id,
         timeoutScale: timeoutScaleFor(attempt),
-      }), (attempt, error, total) => {
-        entry.error = retryNote(attempt, total, error);
+      }), entry.effort, (note) => {
+        entry.error = note;
         record();
       });
+      entry.effort = used;
       entry.error = undefined;
       entry.result = result;
       entry.status = "complete";

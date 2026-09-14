@@ -33,7 +33,7 @@ export class CliFailure extends Error {
     this.name = "CliFailure";
   }
   get retryable() {
-    return this.kind === "transient" || this.kind === "timeout";
+    return this.kind === "transient" || this.kind === "timeout" || isOversized(this);
   }
 }
 
@@ -124,6 +124,24 @@ export function isRetryable(error: unknown) {
   if (error instanceof CliFailure) return error.retryable;
   // Providers other than the CLIs (tests, mock) signal timeouts by message.
   return error instanceof Error && /시간 제한|네트워크 오류|과부하/.test(error.message);
+}
+
+/** Output larger than the CLI limit: too much for this effort, not a broken model. */
+function isOversized(error: CliFailure) {
+  return error.kind === "output" && /MB/.test(error.detail);
+}
+
+/**
+ * The answer was too big or too slow for the chosen effort. Such calls are
+ * retried at a lower effort so the conversation keeps moving.
+ */
+export function isVolumeFailure(error: unknown) {
+  return isTimeout(error) || (error instanceof CliFailure && isOversized(error));
+}
+
+/** Extra time for heavier reasoning; multiplies the stage limit and retry scale. */
+export function effortTimeFactor(effort?: string) {
+  return effort === "max" ? 3 : effort === "xhigh" ? 2 : 1;
 }
 
 /** A time-limit failure: the call already burned its whole budget. */

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
-import { CliFailure, classifyFailure, cliFailure, reportedErrors, sanitizeDetail, stageTimeout } from "./cli-errors";
+import { CliFailure, classifyFailure, cliFailure, reportedErrors, sanitizeDetail, stageTimeout, effortTimeFactor } from "./cli-errors";
 import { answerSchema, modelsSchema, SEARCH_STAGES, type Request, type Result } from "./types";
 
 // Only OS runtime variables reach the official clients. Never inherit API keys,
@@ -275,7 +275,13 @@ export async function subscription(
         output,
         sessionId: previousSession,
       });
-      const raw = await execute("codex", args, cwd, prompt, stageTimeout(r.stage, process.env, r.timeoutScale));
+      const raw = await execute(
+        "codex",
+        args,
+        cwd,
+        prompt,
+        stageTimeout(r.stage, process.env, (r.timeoutScale ?? 1) * effortTimeFactor(effort)),
+      );
       const events = raw.split("\n").flatMap((line) => {
         try {
           return [JSON.parse(line)];
@@ -317,7 +323,13 @@ export async function subscription(
         resume: Boolean(previousSession),
       });
       result = decodeClaude(
-        await execute("claude", args, cwd, prompt, stageTimeout(r.stage, process.env, r.timeoutScale)),
+        await execute(
+          "claude",
+          args,
+          cwd,
+          prompt,
+          stageTimeout(r.stage, process.env, (r.timeoutScale ?? 1) * effortTimeFactor(effort)),
+        ),
         model,
       );
       result.sessionId = previousSession;

@@ -137,6 +137,8 @@ export type Call = {
   error?: string;
   /** Result reused from a checkpoint when an interrupted run resumed. */
   replayed?: boolean;
+  /** Reasoning effort actually used (after stage caps and volume downgrades). */
+  effort?: string;
 };
 export type Exclusion = {
   target: string;

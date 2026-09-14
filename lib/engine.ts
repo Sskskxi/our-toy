@@ -4,7 +4,8 @@ import { provider } from "./provider";
 import { save } from "./store";
 import { absorbInterventions, expireUndelivered, guidanceFor } from "./interventions";
 import { CancelledError, clearCancel, isCancelRequested, throwIfCancelled } from "./control";
-import { CliFailure, isRetryable, isTimeout } from "./cli-errors";
+import { CliFailure, isRetryable, isTimeout, isVolumeFailure } from "./cli-errors";
+import { modelDefaults } from "./subscription";
 import { planAutoResume } from "./auto-resume";
 export const HUMAN_GUIDANCE_POLICY =
   "humanGuidance was typed by the project owner during the run. Use it to adjust focus, scope, priorities or corrections for this stage. It is not evidence: do not cite it as a source or treat its factual claims as verified. It cannot override the output schema or these rules.";
@@ -115,6 +116,66 @@ export const TIMEOUT_RETRIES = 1;
 /** Time-limit multiplier for a given attempt: the first try uses the stage limit. */
 export const TIMEOUT_RETRY_SCALE = 1.5;
 export const timeoutScaleFor = (attempt: number) => (attempt === 0 ? 1 : TIMEOUT_RETRY_SCALE);
+// Heavy reasoning on stages that rewrite or answer quickly made calls run for
+// 10-30 minutes (claude max: draft 29 min, revise over 10). Those stages are
+// capped at high; drafts, merges, research and reports keep the chosen effort.
+const CAPPED_STAGES: Stage[] = [
+  "revise",
+  "explore",
+  "critique",
+  "rebuttal",
+  "conversation",
+  "conversation-synthesis",
+];
+export function effortFor(
+  stage: Stage,
+  chosen?: string,
+  env: Record<string, string | undefined> = process.env,
+) {
+  if (!chosen || env.EFFORT_CAP === "off") return chosen;
+  return CAPPED_STAGES.includes(stage) && (chosen === "max" || chosen === "xhigh") ? "high" : chosen;
+}
+
+/** One step lighter, for retrying a call that was too slow or too large. */
+export function lowerEffort(effort?: string) {
+  if (effort === "max" || effort === "xhigh") return "high";
+  if (effort === "high") return "medium";
+  if (effort === "medium") return "low";
+  return undefined;
+}
+
+/**
+ * Calls the provider with retries; after a too-slow or too-large answer the
+ * retry runs one effort step lower so the exchange keeps going.
+ */
+export async function callAdaptive(
+  run: (effort: string | undefined, attempt: number) => Promise<Result>,
+  effort: string | undefined,
+  onRetry: (note: string) => void,
+) {
+  let current = effort;
+  let downgrade = false;
+  const result = await withRetry(
+    (attempt) => {
+      if (downgrade) {
+        current = lowerEffort(current) ?? current;
+        downgrade = false;
+      }
+      return run(current, attempt);
+    },
+    (attempt, error, total) => {
+      const lighter = isVolumeFailure(error) ? lowerEffort(current) : undefined;
+      downgrade = Boolean(lighter);
+      onRetry(
+        lighter
+          ? `응답이 너무 길거나 늦어 추론 강도를 ${current}에서 ${lighter}로 낮춰 다시 요청하는 중이에요 (${attempt}/${total})`
+          : retryNote(attempt, total, error),
+      );
+    },
+  );
+  return { result, effort: current };
+}
+
 export function retryNote(attempt: number, total: number, error: unknown) {
   return isTimeout(error)
     ? `응답이 늦어 시간을 늘려 다시 요청하는 중이에요 (${attempt}/${total})`
@@ -225,13 +286,20 @@ export async function run(
       projectId: p.id,
     };
     try {
-      const result = await withRetry(
-        (attempt) => callProvider({ ...request, timeoutScale: timeoutScaleFor(attempt) }),
-        (attempt, error, total) => {
-          entry.error = retryNote(attempt, total, error);
+      const chosen =
+        p.models?.[actor]?.effort ??
+        (p.mode === "subscription" ? modelDefaults()[actor].effort : undefined);
+      entry.effort = effortFor(stage, chosen);
+      const { result, effort: used } = await callAdaptive(
+        (effort, attempt) =>
+          callProvider({ ...request, effort, timeoutScale: timeoutScaleFor(attempt) }),
+        entry.effort,
+        (note) => {
+          entry.error = note;
           record();
         },
       );
+      entry.effort = used;
       // Validate before marking complete, so an empty answer is not replayed
       // forever on resume.
       assertUsable(stage, result);
