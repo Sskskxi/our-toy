@@ -67,7 +67,7 @@ export async function live(
     (open ? "gpt-5.6-sol" : "claude-opus-5");
   const effort =
     process.env[open ? "OPENAI_REASONING_EFFORT" : "ANTHROPIC_EFFORT"] ||
-    (open ? "high" : "low");
+    "high";
   if (!["low", "medium", "high", "xhigh", "max"].includes(effort))
     throw new Error(`${r.actor}: 올바르지 않은 effort 설정`);
   const search =

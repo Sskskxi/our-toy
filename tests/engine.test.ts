@@ -187,7 +187,7 @@ test("Anthropic adapter request and citation metadata", async () => {
     const body = JSON.parse(init!.body as string);
     assert.equal(body.tools[0].name, "web_search");
     assert.equal(body.model,"claude-opus-5");
-    assert.equal(body.output_config.effort,"low");
+    assert.equal(body.output_config.effort,"high");
     assert.equal(body.thinking.type,"adaptive");
     return Response.json({
       stop_reason: "end_turn",

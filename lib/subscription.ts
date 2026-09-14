@@ -148,7 +148,7 @@ export function modelDefaults(source: EnvSource = process.env) {
     },
     Claude: {
       model: source.ANTHROPIC_MODEL || "claude-opus-5",
-      effort: source.ANTHROPIC_EFFORT || "low",
+      effort: source.ANTHROPIC_EFFORT || "high",
     },
   };
 }
