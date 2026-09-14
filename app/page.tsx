@@ -35,6 +35,18 @@ type Brief = Pick<
   "id" | "topic" | "status" | "mode" | "createdAt" | "stage"
 > & { busy?: boolean; title?: string; updatedAt?: string };
 type Strategy = "codraft" | "debate" | "relay";
+type Preset = "fast" | "standard" | "deep";
+type Estimate = { calls: [number, number]; minutes: [number, number]; tokens: [number, number]; basedOn: number };
+// Fast is the default: the app is meant for spare moments. The engine still
+// caps revise/explore/follow-up stages at high.
+const PRESETS: Record<
+  Preset,
+  { label: string; hint: string; rounds: number; minRounds: number; effort: { GPT: "high" | "xhigh"; Claude: "high" | "max" } }
+> = {
+  fast: { label: "빠름", hint: "2라운드 · high", rounds: 2, minRounds: 1, effort: { GPT: "high", Claude: "high" } },
+  standard: { label: "표준", hint: "4라운드 · high", rounds: 4, minRounds: 2, effort: { GPT: "high", Claude: "high" } },
+  deep: { label: "깊음", hint: "6라운드 · 초안·보고서 max", rounds: 6, minRounds: 4, effort: { GPT: "xhigh", Claude: "max" } },
+};
 const strategyNames: Record<Strategy, string> = {
   codraft: "공동 초안",
   debate: "토론",
@@ -368,8 +380,8 @@ export default function Page() {
   const [topic, setTopic] = useState(""),
     [mode, setMode] = useState<"mock" | "subscription">("mock"),
     [strategy, setStrategy] = useState<Strategy>("codraft"),
-    [rounds, setRounds] = useState(8),
-    [minRounds, setMinRounds] = useState(6),
+    [rounds, setRounds] = useState(PRESETS.fast.rounds),
+    [minRounds, setMinRounds] = useState(PRESETS.fast.minRounds),
     [threshold, setThreshold] = useState(0.12),
     [ready, setReady] = useState(false),
     [busy, setBusy] = useState(false),
@@ -459,6 +471,54 @@ export default function Page() {
   // Without a project: "home" shows usage + intro, "new" shows only the composer.
   const [view, setView] = useState<"home" | "new">("home");
   const projectsRef = useRef<Brief[]>([]);
+  const [preset, setPreset] = useState<Preset | "custom">("fast");
+  const [budget, setBudget] = useState("");
+  const [estimate, setEstimate] = useState<Estimate | null>(null);
+  function applyPreset(key: Preset) {
+    const p = PRESETS[key];
+    setPreset(key);
+    setRounds(p.rounds);
+    setMinRounds(p.minRounds);
+    setModels((current) => ({
+      GPT: { ...current.GPT, effort: p.effort.GPT },
+      Claude: { ...current.Claude, effort: p.effort.Claude },
+    }));
+  }
+  useEffect(() => {
+    if (mode !== "subscription") return;
+    const q = new URLSearchParams({
+      strategy,
+      minRounds: String(minRounds),
+      maxRounds: String(rounds),
+      gpt: models.GPT?.effort ?? "",
+      claude: models.Claude?.effort ?? "",
+    });
+    const timer = setTimeout(() => {
+      fetch(`/api/estimate?${q}`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((e) => e && setEstimate(e))
+        .catch(() => {});
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [mode, strategy, minRounds, rounds, models]);
+  // Notify when a run in the list finishes while this tab is in the background.
+  const lastStatus = useRef(new Map<string, string>());
+  useEffect(() => {
+    for (const p of projects) {
+      const before = lastStatus.current.get(p.id);
+      lastStatus.current.set(p.id, p.status);
+      if (!before || (before !== "running" && before !== "queued")) continue;
+      if (!["complete", "failed", "interrupted"].includes(p.status)) continue;
+      if (typeof Notification === "undefined" || Notification.permission !== "granted" || !document.hidden)
+        continue;
+      try {
+        new Notification(
+          p.status === "complete" ? "연구가 끝났어요" : p.status === "failed" ? "연구가 멈췄어요" : "연구를 중단했어요",
+          { body: p.title ?? firstLine(p.topic), tag: p.id },
+        );
+      } catch {}
+    }
+  }, [projects]);
   const setProjects = (next: Brief[] | ((prev: Brief[]) => Brief[])) =>
     setProjectsState((prev) => {
       const value = typeof next === "function" ? next(prev) : next;
@@ -720,6 +780,9 @@ export default function Page() {
     e.preventDefault();
     setBusy(true);
     setError("");
+    // Ask once, from this click, so finished runs can notify a hidden tab.
+    if (typeof Notification !== "undefined" && Notification.permission === "default")
+      void Notification.requestPermission().catch(() => {});
     try {
       const res = await fetch("/api/projects", {
         method: "POST",
@@ -734,6 +797,7 @@ export default function Page() {
           maxRounds: rounds,
           minRounds,
           noveltyThreshold: threshold,
+          budgetTokens: budget ? Number(budget) : undefined,
         }),
       });
       const data = await res.json();
@@ -1240,6 +1304,35 @@ export default function Page() {
                     </button>
                   </details>
                 ))}
+                <div className="presetRow" role="group" aria-label="속도 프리셋">
+                  {(Object.keys(PRESETS) as Preset[]).map((key) => (
+                    <button
+                      key={key}
+                      type="button"
+                      aria-pressed={preset === key}
+                      className={preset === key ? "active" : ""}
+                      onClick={() => applyPreset(key)}
+                    >
+                      <b>{PRESETS[key].label}</b>
+                      <span>{PRESETS[key].hint}</span>
+                    </button>
+                  ))}
+                </div>
+                {mode === "subscription" && estimate && (
+                  <p className="estimateLine">
+                    예상 약{" "}
+                    {estimate.minutes[0] === estimate.minutes[1]
+                      ? estimate.minutes[1]
+                      : `${estimate.minutes[0]}~${estimate.minutes[1]}`}
+                    분 · {Math.round(estimate.tokens[0] / 1000)}~{Math.round(estimate.tokens[1] / 1000)}천 토큰 ·
+                    호출 {estimate.calls[0]}~{estimate.calls[1]}회
+                    <small>
+                      {estimate.basedOn
+                        ? `이 Mac의 지난 호출 ${estimate.basedOn}회 기준이에요`
+                        : "지난 기록이 없어 기본값으로 계산했어요"}
+                    </small>
+                  </p>
+                )}
                 <div className="formOptions">
                   <label>
                     실행 모드
@@ -1266,50 +1359,75 @@ export default function Page() {
                       <option value="debate">토론 · 조사→비판→반박</option>
                     </select>
                   </label>
-                  <label>
-                    최대 라운드
-                    <select
-                      value={rounds}
-                      onChange={(e) => {
-                        const n = Number(e.target.value);
-                        setRounds(n);
-                        setMinRounds((m) => Math.min(m, n));
-                      }}
-                    >
-                      {Array.from({ length: 30 }, (_, i) => i + 1).map((n) => (
-                        <option key={n} value={n}>
-                          {n} 라운드
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    최소 라운드
-                    <select
-                      value={minRounds}
-                      onChange={(e) => setMinRounds(Number(e.target.value))}
-                    >
-                      {Array.from({ length: rounds }, (_, i) => i + 1).map(
-                        (n) => (
+                </div>
+                <details className="advancedSettings">
+                  <summary>
+                    고급 설정 · 라운드 {minRounds}~{rounds} · 예산{" "}
+                    {budget ? `${Math.round(Number(budget) / 1000)}천 토큰` : "없음"}
+                  </summary>
+                  <div className="formOptions">
+                    <label>
+                      최대 라운드
+                      <select
+                        value={rounds}
+                        onChange={(e) => {
+                          const n = Number(e.target.value);
+                          setPreset("custom");
+                          setRounds(n);
+                          setMinRounds((m) => Math.min(m, n));
+                        }}
+                      >
+                        {Array.from({ length: 30 }, (_, i) => i + 1).map((n) => (
                           <option key={n} value={n}>
                             {n} 라운드
                           </option>
-                        ),
-                      )}
-                    </select>
-                  </label>
-                  <label>
-                    새 정보 기준
-                    <select
-                      value={threshold}
-                      onChange={(e) => setThreshold(Number(e.target.value))}
-                    >
-                      <option value={0}>0% · 새 정보 없음</option>
-                      <option value={0.12}>12% · 기본</option>
-                      <option value={0.25}>25% · 빠른 수렴</option>
-                    </select>
-                  </label>
-                </div>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      최소 라운드
+                      <select
+                        value={minRounds}
+                        onChange={(e) => {
+                          setPreset("custom");
+                          setMinRounds(Number(e.target.value));
+                        }}
+                      >
+                        {Array.from({ length: rounds }, (_, i) => i + 1).map((n) => (
+                          <option key={n} value={n}>
+                            {n} 라운드
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      새 정보 기준
+                      <select
+                        value={threshold}
+                        onChange={(e) => setThreshold(Number(e.target.value))}
+                      >
+                        <option value={0}>0% · 새 정보 없음</option>
+                        <option value={0.12}>12% · 기본</option>
+                        <option value={0.25}>25% · 빠른 수렴</option>
+                      </select>
+                    </label>
+                    <label>
+                      예산 한도(토큰)
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={10000}
+                        step={10000}
+                        placeholder="없음"
+                        value={budget}
+                        onChange={(e) => setBudget(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <p className="help">
+                    예산에 닿으면 다음 호출 전에 멈추고, 한도를 올려 이어서 실행할 수 있어요.
+                  </p>
+                </details>
                 {mode === "subscription" ? (
                   <div className="modelSection">
                     <div className="modelSectionHead">

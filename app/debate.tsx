@@ -430,6 +430,12 @@ export function ModelPicker({
                 ))}
               </select>
             </label>
+            {(choice.effort === "max" || choice.effort === "xhigh") && (
+              <p className="help effortNote">
+                {choice.effort}는 단계당 10~30분 걸릴 수 있어요. 수정·탐색·후속 대화는 자동으로 high로
+                제한하고, 너무 오래 걸리면 강도를 낮춰 다시 요청해요.
+              </p>
+            )}
           </div>
         );
       })}
