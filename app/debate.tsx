@@ -23,6 +23,7 @@ export const stageLabels: Record<string, string> = {
   research: "독립 조사",
   critique: "상호비판",
   rebuttal: "반박 · 수정",
+  contradictions: "모순 확인",
   synthesis: "최종 종합",
   conversation: "후속 대화",
   "conversation-synthesis": "공동 정리",
@@ -36,6 +37,7 @@ const stageHints: Record<string, string> = {
   research: "서로의 답을 보지 않고 각자 조사합니다.",
   critique: "상대의 주장에서 약한 근거와 빈틈을 찾습니다.",
   rebuttal: "받은 비판에 답하고 주장을 고치거나 거둡니다.",
+  contradictions: "원문을 확인한 주장들 가운데 동시에 참일 수 없는 쌍을 찾아요.",
   synthesis: "원장과 남은 질문을 모아 보고서를 씁니다.",
 };
 
@@ -1430,6 +1432,57 @@ export function ExclusionList({ project }: { project: Project }) {
             <small>
               {e.actor} · R{e.round} · <Stamp at={e.at} />
             </small>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+const CHECK_TEXT = {
+  match: "원문 일치",
+  partial: "원문 일부 일치",
+  mismatch: "원문 불일치",
+  unreachable: "접근 불가",
+  skipped: "자동 확인 안 함",
+} as const;
+const GRADE_TEXT = { 1: "1차 자료", 2: "기관 자료", 3: "기타 자료" } as const;
+
+/** Grade and page-check result of one cited source. */
+export function SourceCheckBadges({ source }: { source: Project["claims"][number]["sources"][number] }) {
+  if (!source.grade && !source.check) return null;
+  return (
+    <span className="sourceChecks">
+      {source.grade && <b className={`gradeBadge g${source.grade}`}>{GRADE_TEXT[source.grade]}</b>}
+      {source.check && (
+        <b className={`checkBadge ${source.check.status}`} title={source.check.note}>
+          {CHECK_TEXT[source.check.status]}
+        </b>
+      )}
+      {source.check?.note && <small>{source.check.note}</small>}
+    </span>
+  );
+}
+
+export function gradeText(grade?: 1 | 2 | 3) {
+  return grade ? GRADE_TEXT[grade] : "";
+}
+
+/** Claims that cannot both be true, found right before the report. */
+export function ContradictionList({ project }: { project: Project }) {
+  const items = project.contradictions ?? [];
+  if (!items.length) return null;
+  return (
+    <section className="contradictionPanel" aria-label="서로 맞지 않는 주장">
+      <h3>
+        서로 맞지 않는 주장 <span>{items.length}</span>
+      </h3>
+      <ul>
+        {items.map((c, i) => (
+          <li key={i}>
+            <span className="contradictionPair">{c.between}</span>
+            <p>{c.reason}</p>
+            <small>{c.actor}가 보고서 전에 찾았어요</small>
           </li>
         ))}
       </ul>

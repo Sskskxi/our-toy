@@ -2626,3 +2626,112 @@ dialog.updateDialog::backdrop {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---------- Source checks, contradictions, print ---------- */
+.sourceChecks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 4px;
+}
+.source .sourceChecks {
+  margin-left: 0;
+}
+.sourceChecks b {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+.sourceChecks .gradeBadge.g1 {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.sourceChecks .checkBadge.match {
+  border-color: var(--positive);
+  color: var(--ink);
+  box-shadow: inset 4px 0 0 var(--positive);
+}
+.sourceChecks .checkBadge.partial,
+.sourceChecks .checkBadge.unreachable {
+  background: var(--warning-weak);
+}
+.sourceChecks .checkBadge.mismatch {
+  background: var(--danger-weak);
+  border-color: var(--danger);
+  color: var(--danger-pressed);
+}
+.sourceChecks small {
+  flex-basis: 100%;
+  font-size: 13px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.contradictionPanel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--warning);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 16px 0;
+  color: var(--ink);
+}
+.contradictionPanel h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.contradictionPanel h3 span {
+  color: var(--muted);
+  font-weight: 500;
+}
+.contradictionPanel ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+.contradictionPanel li {
+  font-size: 13px;
+  border-top: 1px dashed var(--line);
+  padding-top: 8px;
+}
+.contradictionPair {
+  display: block;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.contradictionPanel p {
+  margin: 4px 0;
+}
+.contradictionPanel small {
+  color: var(--muted);
+  font-size: 13px;
+}
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .printable,
+  .printable * {
+    visibility: visible;
+  }
+  .printable {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    background: var(--bg);
+  }
+  .printable a {
+    color: var(--ink);
+  }
+}

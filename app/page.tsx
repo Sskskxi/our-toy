@@ -5,6 +5,9 @@ import {
   CopyButton,
   DebateThread,
   ExclusionList,
+  ContradictionList,
+  SourceCheckBadges,
+  gradeText,
   ProjectNow,
   DocumentPanel,
   Elapsed,
@@ -380,6 +383,7 @@ export default function Page() {
   const [topic, setTopic] = useState(""),
     [mode, setMode] = useState<"mock" | "subscription">("mock"),
     [strategy, setStrategy] = useState<Strategy>("codraft"),
+    [reportTemplate, setReportTemplate] = useState<"default" | "contest">("default"),
     [rounds, setRounds] = useState(PRESETS.fast.rounds),
     [minRounds, setMinRounds] = useState(PRESETS.fast.minRounds),
     [threshold, setThreshold] = useState(0.12),
@@ -471,6 +475,24 @@ export default function Page() {
   // Without a project: "home" shows usage + intro, "new" shows only the composer.
   const [view, setView] = useState<"home" | "new">("home");
   const projectsRef = useRef<Brief[]>([]);
+  const [exporting, setExporting] = useState(false);
+  async function exportDocx(id: string) {
+    setExporting(true);
+    try {
+      const res = await fetch(`/api/projects/${id}/export?format=docx`, { cache: "no-store" });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "Word 파일을 만들지 못했어요.");
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `research-${id}.docx`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Word 파일을 만들지 못했어요.");
+    } finally {
+      setExporting(false);
+    }
+  }
   const [preset, setPreset] = useState<Preset | "custom">("fast");
   const [budget, setBudget] = useState("");
   const [estimate, setEstimate] = useState<Estimate | null>(null);
@@ -798,6 +820,7 @@ export default function Page() {
           minRounds,
           noveltyThreshold: threshold,
           budgetTokens: budget ? Number(budget) : undefined,
+          reportTemplate,
         }),
       });
       const data = await res.json();
@@ -1359,6 +1382,16 @@ export default function Page() {
                       <option value="debate">토론 · 조사→비판→반박</option>
                     </select>
                   </label>
+                  <label>
+                    보고서 형식
+                    <select
+                      value={reportTemplate}
+                      onChange={(e) => setReportTemplate(e.target.value as "default" | "contest")}
+                    >
+                      <option value="default">연구 보고서</option>
+                      <option value="contest">공모전 제안서 · 배경→문제→해결→효과→산출물</option>
+                    </select>
+                  </label>
                 </div>
                 <details className="advancedSettings">
                   <summary>
@@ -1877,10 +1910,11 @@ export default function Page() {
                       <span>{project.claims.length}개 주장</span>
                     </div>
                     <p className="help">
-                      출처 연결은 제공자 검색 응답에 URL이 있었다는 뜻입니다.
-                      원문이 주장을 입증하는지는 별도 검토가 필요합니다.
-                      확신도는 모델의 자체 평가입니다.
+                      보고서 전에 인용한 페이지를 직접 열어 주장의 숫자·조항·핵심어가 원문에 있는지
+                      확인해요. 일치해도 해석까지 맞는지는 직접 검토해 주세요. 확신도는 모델의 자체
+                      평가예요.
                     </p>
+                    <ContradictionList project={project} />
                     <ExclusionList project={project} />
                     {!project.claims.length && (
                       <p className="empty">
@@ -1903,6 +1937,7 @@ export default function Page() {
                           <small>
                             {c.actors.join(" + ")} · 확신도{" "}
                             {Math.round(c.confidence * 100)}%
+                            {c.grade ? ` · 최고 근거 ${gradeText(c.grade)}` : ""}
                           </small>
                         </div>
                         <h3>{c.statement}</h3>
@@ -1924,6 +1959,7 @@ export default function Page() {
                                     : "미확인 URL"}
                               </span>
                               <p>{s.excerpt}</p>
+                              <SourceCheckBadges source={s} />
                             </div>
                           ))
                         ) : (
@@ -1974,6 +2010,16 @@ export default function Page() {
                         <h2>최종 종합 보고서</h2>
                         <span className="reportActions">
                           <CopyButton text={project.report} label="보고서 복사" />
+                          <button className="secondary" onClick={() => window.print()}>
+                            PDF로 저장
+                          </button>
+                          <button
+                            className="secondary"
+                            disabled={exporting}
+                            onClick={() => exportDocx(project.id)}
+                          >
+                            {exporting ? "Word 만드는 중" : "Word 다운로드"}
+                          </button>
                           <button
                             className="primary"
                             onClick={() => download(`research-${project.id}.md`, project.report!)}
@@ -1982,7 +2028,10 @@ export default function Page() {
                           </button>
                         </span>
                       </div>
-                      <article className="report">
+                      {project.reportTemplate === "contest" && (
+                        <p className="help">공모전 제안서 형식으로 작성했어요.</p>
+                      )}
+                      <article className="report printable">
                         <RichMarkdown>{project.report}</RichMarkdown>
                       </article>
                     </>
