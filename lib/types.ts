@@ -40,7 +40,7 @@ export const inputSchema = z
     })).max(5).optional(),
     topic: z.string().trim().min(5).max(2000),
     mode: z.enum(["mock", "subscription"]).default("mock"),
-    strategy: z.enum(["codraft", "debate"]).default("codraft"),
+    strategy: z.enum(["codraft", "debate", "relay"]).default("codraft"),
     maxRounds: z.number().int().min(1).max(30).default(8),
     minRounds: z.number().int().min(1).max(30).optional(),
     noveltyThreshold: z.number().min(0).max(1).default(0.12),
@@ -59,6 +59,7 @@ export type Stage =
   | "draft"
   | "merge"
   | "revise"
+  | "explore"
   | "research"
   | "critique"
   | "rebuttal"
@@ -66,7 +67,7 @@ export type Stage =
   | "conversation"
   | "conversation-synthesis";
 /** Stages allowed to use web search when ENABLE_WEB_SEARCH is on. */
-export const SEARCH_STAGES: Stage[] = ["research", "draft", "revise", "conversation"];
+export const SEARCH_STAGES: Stage[] = ["research", "draft", "revise", "explore", "conversation"];
 export const messageSchema = z.object({
   message: z.string().trim().min(1, "메시지를 입력하세요.").max(10000),
   target: z.enum(["GPT", "Claude", "both"]),
@@ -137,6 +138,13 @@ export type Call = {
   /** Result reused from a checkpoint when an interrupted run resumed. */
   replayed?: boolean;
 };
+export type Exclusion = {
+  target: string;
+  reason: string;
+  actor: Actor;
+  round: number;
+  at: string;
+};
 export type DocumentVersion = {
   version: number;
   author: Actor;
@@ -179,8 +187,12 @@ export type Project = Omit<Input, "mode" | "strategy"> & {
   /** Display name set by the user; the research topic stays unchanged. */
   title?: string;
   /** Missing on projects created before shared drafts existed: those are debates. */
-  strategy?: "codraft" | "debate";
+  strategy?: "codraft" | "debate" | "relay";
   documents?: DocumentVersion[];
+  /** Research relay: claims or sources a model dropped as off-topic or weak. */
+  exclusions?: Exclusion[];
+  /** Research relay: promising directions proposed for the next explorer. */
+  threads?: string[];
   id: string;
   createdAt: string;
   updatedAt: string;

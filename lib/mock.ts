@@ -113,6 +113,23 @@ export async function mock(request: Request): Promise<Result> {
     if (!quiet) answer.claims = [{ statement: `${topic}: ${actor}는 ${round}라운드에 실패 사례 비교를 추가했다.`, sources: [], confidence: 0.5 }];
     answer.summary = quiet ? doc : `${doc}\n\n### ${actor} 보강 (라운드 ${round})\n- **추가**: 실패 사례 비교 관점`;
   }
+  if (stage === "explore") {
+    const ctx = (request.context as { stageContext?: { previousTurn?: { claims?: { statement: string }[] } | null } } | null)?.stageContext;
+    const prevClaims = ctx?.previousTurn?.claims ?? [];
+    answer.claims = [
+      {
+        statement: `${topic}: ${actor}가 ${round}라운드에 ${round === 1 ? "기초 자료" : "빈틈 보완 자료"}를 찾았다.`,
+        sources: [{ title: "시뮬레이션 근거 — 실제 자료 아님", url: `https://example.com/mock/${actor.toLowerCase()}/${round}`, excerpt: "흐름 검증을 위한 합성 예시입니다." }],
+        confidence: 0.55,
+      },
+    ];
+    // From the second round on, drop the peer's latest finding as off-topic.
+    if (prevClaims[0] && round >= 2)
+      answer.critiques = [{ claim: prevClaims[0].statement, objection: "연구 질문의 범위와 맞지 않아 제외했습니다." }];
+    answer.questions = round >= 2 ? [] : [`${topic}: 비용 대비 효과 흐름`];
+    answer.unresolved = round >= 2 ? [] : [gap];
+    answer.summary = `### 핵심 요점\n- **${actor} ${round}라운드 탐색**: 새 자료 1건\n\n### 보완한 부분\n- 이전 차례의 빈틈을 채웠습니다.\n\n### 제외한 자료\n${answer.critiques.length ? "- 범위 밖 자료 1건" : "- 없음"}\n\n### 더 파고든 흐름\n- 비용 대비 효과\n\n### 다음 탐색 제안\n${answer.questions.map((q) => `- ${q}`).join("\n") || "- 더 파고들 흐름 없음"}`;
+  }
   if (stage === "conversation") {
     answer.summary = `### 핵심 요점\n- **${actor} 답변**: 저장된 연구 맥락을 바탕으로 검토했습니다.\n- **근거 한계**: 합성 데이터라 실제 사실 확인은 없습니다.\n\n### 받은 질문\n> ${(questions[0] ?? "후속 질문").split("\n")[0]}`;
   }

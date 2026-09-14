@@ -133,7 +133,7 @@ export function stageTimeout(
 ) {
   const override = Number(env.CLI_TIMEOUT_SECONDS);
   if (Number.isFinite(override) && override >= 60) return override * 1000;
-  if (["research", "draft", "revise"].includes(stage)) return 600_000;
+  if (["research", "draft", "revise", "explore"].includes(stage)) return 600_000;
   if (["merge", "synthesis"].includes(stage)) return 420_000;
   return 300_000;
 }

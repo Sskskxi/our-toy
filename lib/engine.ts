@@ -78,7 +78,7 @@ export function merge(
 // and grew to millions of tokens per call), so user references are attached to
 // every stage that gathers or checks evidence. Other stages work from the
 // document, drafts or critiques they are given.
-const EVIDENCE_STAGES: Stage[] = ["plan", "draft", "research", "revise", "conversation"];
+const EVIDENCE_STAGES: Stage[] = ["plan", "draft", "research", "revise", "explore", "conversation"];
 export function referenceContext(p: Project, stage: Stage, maxChars = 60000) {
   if (!EVIDENCE_STAGES.includes(stage) || (!p.referenceText && !p.attachments?.length))
     return {};
@@ -138,6 +138,8 @@ export function prepareResume(p: Project) {
   p.questions = [];
   p.unresolved = [];
   p.documents = [];
+  p.exclusions = [];
+  p.threads = [];
   p.stopReason = undefined;
   p.report = undefined;
   p.error = undefined;
@@ -264,7 +266,11 @@ export async function run(
     p.unresolved = [...p.questions];
     record();
     const final =
-      p.strategy === "codraft" ? await coDraftRounds(tools) : await debateRounds(tools);
+      p.strategy === "codraft"
+        ? await coDraftRounds(tools)
+        : p.strategy === "relay"
+          ? await relayRounds(tools)
+          : await debateRounds(tools);
     checkpoint("synthesis", p.rounds.length, "최종 보고서 종합", [final.synthesizer]);
     const report = await call(
       final.synthesizer,
@@ -277,13 +283,14 @@ export async function run(
         stopReason: p.stopReason,
         rounds: p.rounds,
         ...(final.document ? { sharedDocument: final.document } : {}),
+        ...(p.strategy === "relay" ? { researchMap: researchMap(p) } : {}),
       },
     );
     if (!report.answer.summary.trim())
       throw new Error("최종 보고서가 비어 있습니다.");
     p.report =
       report.answer.summary +
-      `\n\n---\n\n## 실행 기록\n- 모드: ${p.mode}\n- 협업 방식: ${p.strategy === "codraft" ? "공동 초안" : "토론"}\n- 종료: ${p.stopReason}\n- 라운드: ${p.rounds.length}\n- 미해결 질문: ${p.unresolved.length}\n\n` +
+      `\n\n---\n\n## 실행 기록\n- 모드: ${p.mode}\n- 협업 방식: ${p.strategy === "codraft" ? "공동 초안" : p.strategy === "relay" ? "탐색 릴레이" : "토론"}\n- 종료: ${p.stopReason}\n- 라운드: ${p.rounds.length}\n- 미해결 질문: ${p.unresolved.length}\n\n` +
       p.unresolved.map((q) => `- ${q}`).join("\n");
     p.status = "complete";
     p.stage = "연구 완료";
@@ -534,4 +541,98 @@ async function coDraftRounds({ p, call, pair, checkpoint, record }: EngineTools)
   }
   // A different model from the aggregator writes the final report (judge bias).
   return { synthesizer: "Claude", document: document.markdown };
+}
+
+function researchMap(p: Project) {
+  return {
+    keptClaims: p.claims.map(({ id, statement, confidence, status, actors, sources }) => ({
+      id,
+      statement,
+      confidence,
+      status,
+      actors,
+      sources: sources.map((src) => ({ title: src.title, url: src.url })),
+    })),
+    excluded: (p.exclusions ?? []).map(({ target, reason, actor }) => ({ target, reason, by: actor })),
+    openGaps: p.unresolved,
+    threadsToDeepen: p.threads ?? [],
+  };
+}
+
+/** Apply one explorer's exclusions: drop matching claims or sources, remember why. */
+export function applyExclusions(p: Project, actor: Actor, round: number, result: Result) {
+  p.exclusions ??= [];
+  for (const { claim: target, objection: reason } of result.answer.critiques) {
+    const key = normalize(target);
+    if (!key) continue;
+    p.claims = p.claims.filter((c) => normalize(c.statement) !== key);
+    const url = target.trim();
+    if (/^https?:\/\//.test(url))
+      for (const c of p.claims) c.sources = c.sources.filter((src) => src.url !== url);
+    if (!p.exclusions.some((e) => normalize(e.target) === key))
+      p.exclusions.push({ target, reason, actor, round, at: new Date().toISOString() });
+  }
+}
+
+// Research relay: Claude explores first, then each model audits the other's
+// findings (dropping off-topic or weak material), fills gaps and deepens the
+// most promising threads, taking turns until nothing worth deepening remains.
+async function relayRounds({ p, call, checkpoint, record }: EngineTools): Promise<RoundsOutcome> {
+  const order: Actor[] = ["Claude", "GPT"];
+  let previous: { actor: Actor; answer: Result["answer"] } | undefined;
+  let lowNovelty = 0;
+  for (let round = 1; round <= p.maxRounds; round++) {
+    const rr: Round = { number: round, questions: [...p.questions], requeued: [] };
+    p.rounds.push(rr);
+    const turns: { actor: Actor; result: Result }[] = [];
+    let newItems = 0;
+    for (const actor of order) {
+      checkpoint("explore", round, `라운드 ${round} · ${actor} 탐색 차례`, [actor]);
+      const result = await call(actor, "explore", round, p.questions, {
+        previousTurn: previous
+          ? {
+              actor: previous.actor,
+              summary: previous.answer.summary.slice(0, 12000),
+              claims: previous.answer.claims,
+              threads: previous.answer.questions,
+            }
+          : null,
+        researchMap: researchMap(p),
+      });
+      applyExclusions(p, actor, round, result);
+      // Excluded material stays out even if a later turn finds it again.
+      const excluded = new Set((p.exclusions ?? []).map((e) => normalize(e.target)));
+      const kept: Result = {
+        ...result,
+        answer: {
+          ...result.answer,
+          claims: result.answer.claims.filter((c) => !excluded.has(normalize(c.statement))),
+        },
+        observedUrls: unique([...result.observedUrls, ...citedUrls(p)]),
+      };
+      newItems += merge(p, [{ actor, result: kept }], round).newItems;
+      p.unresolved = unique(result.answer.unresolved);
+      p.threads = unique(result.answer.questions).slice(0, 8);
+      previous = { actor, answer: result.answer };
+      turns.push({ actor, result });
+      record();
+    }
+    const total = Math.max(1, p.claims.length + p.claims.reduce((n, c) => n + c.sources.length, 0));
+    rr.newItems = newItems;
+    // Exclusions shrink the ledger, so cap the ratio at 100%.
+    rr.novelty = Math.min(1, newItems / total);
+    rr.requeued = [...p.unresolved];
+    // Both legs proposing nothing left to deepen is the relay's own finish line.
+    const exhausted = turns.every((t) => t.result.answer.questions.length === 0);
+    lowNovelty = rr.novelty <= p.noveltyThreshold ? lowNovelty + 1 : 0;
+    if (round >= minRoundsOf(p) && exhausted)
+      p.stopReason =
+        "두 모델 모두 더 파고들 흐름이 없다고 응답 (탐색 수렴이며 사실 검증 완료를 의미하지 않음)";
+    else if (round >= Math.max(2, minRoundsOf(p)) && lowNovelty >= 2)
+      p.stopReason = "두 라운드 연속 새 정보 비율이 기준 이하";
+    else if (round === p.maxRounds) p.stopReason = "최대 라운드 도달";
+    record();
+    if (p.stopReason) break;
+  }
+  return { synthesizer: "GPT" };
 }
