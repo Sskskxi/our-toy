@@ -187,3 +187,14 @@ test("references list only the sources the report uses, in order of use", async 
   assert.ok(found.some((m) => m.includes("6개")));
   assert.ok(found.some((m) => m.includes("170자")));
 });
+
+test("grades follow the rules on every run and jargon in the one-line answer is flagged", async () => {
+  const { gradeSource } = await import("../lib/verify");
+  const { reportProblems } = await import("../lib/engine");
+  assert.equal(gradeSource("https://cse.cau.ac.kr/sub05/board.php", "공모전 안내"), 2, "a university board is not a primary source");
+  assert.equal(gradeSource("https://www.law.go.kr/x"), 1);
+  const plain = "### 핵심 요점\n- **결론**: KISIA 공모전에 공공기관 AI 부품 목록 기준을 제안하세요.\n\n## 결론: x\n## 바로 할 일\n1. y";
+  assert.deepEqual(reportProblems(plain), []);
+  const jargon = plain.replace("공공기관 AI 부품 목록 기준", "CycloneDX 기반 AI-BOM 최소 프로파일");
+  assert.ok(reportProblems(jargon).some((m) => m.includes("영문 전문용어")));
+});

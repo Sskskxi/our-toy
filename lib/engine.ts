@@ -878,7 +878,7 @@ async function relayRounds({ p, call, checkpoint, record }: EngineTools): Promis
 
 function gradeClaims(claims: Claim[]) {
   for (const claim of claims) {
-    for (const source of claim.sources) source.grade ??= gradeSource(source.url, source.title);
+    for (const source of claim.sources) source.grade = gradeSource(source.url, source.title);
     claim.grade = claim.sources.length
       ? (Math.min(...claim.sources.map((s) => s.grade ?? 3)) as 1 | 2 | 3)
       : undefined;
@@ -935,6 +935,10 @@ export function reportProblems(markdown: string) {
   const firstBullet = keyBlock.split("\n").find((l) => /^\s*[-*]\s+/.test(l)) ?? "";
   if (!/^\s*[-*]\s+\*\*결론\*\*\s*:/.test(firstBullet))
     problems.push("'### 핵심 요점'의 첫 항목이 '**결론**: 직접적인 답'이 아니에요.");
+  // Latin technical names (CycloneDX, AI-BOM, SBOM…) make the one-line answer
+  // unreadable; "AI" alone and one organisation name are fine.
+  const jargon = (firstBullet.match(/[A-Za-z][A-Za-z0-9.+-]{2,}/g) ?? []).length;
+  if (jargon > 2) problems.push(`결론 문장에 영문 전문용어가 ${jargon}개 있어요. 쉬운 말로 쓰고 용어는 '한 줄 요약'에서 풀어 주세요.`);
   if (/(검토가 필요|추가 확인이 필요|판단하기 어렵)/.test(firstBullet))
     problems.push("결론이 권고가 아니라 보류 표현이에요.");
   const bullets = keyBlock.split("\n").filter((l) => /^\s*[-*]\s+/.test(l));

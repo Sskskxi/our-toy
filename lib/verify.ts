@@ -91,11 +91,12 @@ export function gradeSource(url: string, title = ""): Grade {
     /(^|\.)(legislation\.gov\.uk|federalregister\.gov|ecfr\.gov)$/,
     /(^|\.)(rfc-editor\.org|ietf\.org|iso\.org|w3\.org|etsi\.org|itu\.int)$/,
     /(^|\.)(doi\.org|arxiv\.org|acm\.org|ieee\.org|springer\.com|sciencedirect\.com|nature\.com|usenix\.org|jstor\.org)$/,
-    /(^|\.)(ac\.kr|edu)$/,
   ];
   if (primary.some((re) => re.test(host))) return 1;
   if (
-    /(^|\.)(or\.kr|re\.kr|org|int)$/.test(host) ||
+    // University sites are mostly notices and reposts (a department board
+    // reposting a contest notice outranked the organiser's own page).
+    /(^|\.)(or\.kr|re\.kr|ac\.kr|edu|org|int)$/.test(host) ||
     /^(docs|developer|developers|learn|support)\./.test(host) ||
     /(보고서|백서|white ?paper|report|guideline|가이드라인)/i.test(title)
   )
@@ -187,7 +188,7 @@ export async function verifyClaims(
     }),
   );
   for (const claim of claims) {
-    for (const source of claim.sources) source.grade ??= gradeSource(source.url, source.title);
+    for (const source of claim.sources) source.grade = gradeSource(source.url, source.title);
     claim.grade = claim.sources.length
       ? (Math.min(...claim.sources.map((s) => s.grade ?? 3)) as Grade)
       : undefined;
