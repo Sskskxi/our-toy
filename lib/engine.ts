@@ -427,6 +427,12 @@ async function debateRounds({ p, call, pair, checkpoint, record }: EngineTools):
   return { synthesizer: "GPT" };
 }
 
+/** Edit entries only; "응답: ..." entries are replies to the other model. */
+export const REPLY_PREFIX = "응답:";
+export function editsOf(result: Result) {
+  return result.answer.critiques.filter((c) => !c.claim.trim().startsWith(REPLY_PREFIX));
+}
+
 function citedUrls(p: Project) {
   return p.claims.flatMap((c) =>
     c.sources.filter((s) => s.provenance === "provider-cited").map((s) => s.url),
@@ -525,7 +531,7 @@ async function coDraftRounds({ p, call, pair, checkpoint, record }: EngineTools)
     );
     p.unresolved = unique(turns.at(-1)!.result.answer.unresolved);
     rr.requeued = [...p.unresolved];
-    const settled = turns.every((t) => t.result.answer.critiques.length === 0);
+    const settled = turns.every((t) => editsOf(t.result).length === 0);
     const textChanged = document.markdown !== roundStartText;
     // Edits count as progress even without new ledger claims.
     lowNovelty =

@@ -512,6 +512,9 @@ function BubbleView({
   const { key, rest } = splitKeyPoints(a?.summary ?? "");
   const structured = Boolean(key || a?.claims.length || a?.critiques.length);
   const editing = call.stage === "merge" || call.stage === "revise";
+  const isReply = (claim: string) => /^\s*응답:/.test(claim);
+  const replies = (a?.critiques ?? []).filter((c) => isReply(c.claim));
+  const edits = (a?.critiques ?? []).filter((c) => !isReply(c.claim));
   const writesDocument = editing || call.stage === "draft";
   return (
     <article className={cls}>
@@ -559,10 +562,23 @@ function BubbleView({
               ))}
             </ol>
           )}
-          {key && (
+          {key && !editing && (
             <div className="keyPoints">
               <span className="keyLabel">핵심 요점</span>
               <SafeMarkdown>{key}</SafeMarkdown>
+            </div>
+          )}
+          {editing && replies.length > 0 && (
+            <div className="changeList replyList">
+              <b>상대 변경에 대한 답</b>
+              <ul>
+                {replies.map((c, i) => (
+                  <li key={i}>
+                    <span>{c.claim.replace(/^\s*응답:\s*/, "")}</span>
+                    <p>{c.objection}</p>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
           {a.claims.length > 0 && (
@@ -611,9 +627,9 @@ function BubbleView({
           {editing && (
             <div className="changeList">
               <b>{call.stage === "merge" ? "합치면서 정한 것" : "이번 차례 변경 사항"}</b>
-              {a.critiques.length ? (
+              {edits.length ? (
                 <ul>
-                  {a.critiques.map((c, i) => (
+                  {edits.map((c, i) => (
                     <li key={i}>
                       <span>{c.claim}</span>
                       <p>{c.objection}</p>
@@ -940,7 +956,13 @@ export function DocumentPanel({ project }: { project: Project }) {
             onClick={() => setPicked(d.version)}
           >
             v{d.version} · {label(d)}
-            {d.stage === "revise" && <em>{d.changes.length ? `${d.changes.length}건` : "변경 없음"}</em>}
+            {d.stage === "revise" && (
+              <em>
+                {d.changes.some((c) => !/^\s*응답:/.test(c.target))
+                  ? `${d.changes.filter((c) => !/^\s*응답:/.test(c.target)).length}건`
+                  : "변경 없음"}
+              </em>
+            )}
           </button>
         ))}
       </div>
