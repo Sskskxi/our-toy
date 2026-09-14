@@ -21,6 +21,7 @@ export function enqueueMessage(p: Project, raw: MessageInput) {
     attempts: 0,
     createdAt: now(),
     updatedAt: now(),
+    ...(input.models ? { models: input.models } : {}),
     responses: {},
   };
   p.conversation.turns.push(turn);
@@ -103,6 +104,8 @@ export async function runConversation(
         topic: p.topic,
         questions: [activeTurn.userText],
         context,
+        model: activeTurn.models?.[actor]?.model ?? p.models?.[actor]?.model,
+        effort: activeTurn.models?.[actor]?.effort ?? p.models?.[actor]?.effort,
         mode: p.mode,
         projectId: p.id,
         sessionId: p.providerSessions?.[actor],

@@ -15,6 +15,7 @@ process.env.MOCK_DELAY_MS = "0";
 const input = {
   topic: "공공 에이전트 권한 관리 정책 검증",
   mode: "mock" as const,
+  strategy: "debate" as const,
   maxRounds: 6,
   minRounds: 1,
   noveltyThreshold: 0.12,

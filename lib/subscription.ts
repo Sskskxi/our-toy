@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { answerSchema, type Request, type Result } from "./types";
+import { answerSchema, modelsSchema, SEARCH_STAGES, type Request, type Result } from "./types";
 
 // Only OS runtime variables reach the official clients. Never inherit API keys,
 // provider overrides, OAuth tokens, project dotenv, or alternate auth directories.
@@ -91,7 +91,7 @@ export function execute(
         const reason =
           failure ||
           (/rate.limit|usage.limit|limit.reached|quota/i.test(msg)
-            ? "구독 사용량 제한에 도달했습니다. 한도 복구 후 새 프로젝트로 재시도하세요."
+            ? "구독 사용량 제한에 도달했습니다. 한도가 초기화된 뒤 이어서 실행하세요."
             : /auth|log.?in|token|401/i.test(msg)
               ? "구독 인증을 확인하세요. 터미널에서 다시 로그인해야 할 수 있습니다."
               : "CLI 실행 실패. 터미널에서 공식 도구의 상태를 확인하세요.");
@@ -138,6 +138,32 @@ function sessionWorkdir(r: Request, fallback: string) {
   );
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
+}
+type EnvSource = Record<string, string | undefined>;
+export function modelDefaults(source: EnvSource = process.env) {
+  return {
+    GPT: {
+      model: source.OPENAI_MODEL || "gpt-5.6-sol",
+      effort: source.OPENAI_REASONING_EFFORT || "high",
+    },
+    Claude: {
+      model: source.ANTHROPIC_MODEL || "claude-opus-5",
+      effort: source.ANTHROPIC_EFFORT || "low",
+    },
+  };
+}
+// UI choices win over .env defaults. Both are re-validated here because the
+// values become CLI arguments.
+export function resolveModel(
+  r: Pick<Request, "actor" | "model" | "effort">,
+  source: EnvSource = process.env,
+) {
+  const fallback = modelDefaults(source)[r.actor];
+  const model = r.model || fallback.model;
+  const effort = r.effort || fallback.effort;
+  if (!modelsSchema.safeParse({ [r.actor]: { model, effort } }).success)
+    throw new Error("모델 또는 추론 수준 설정 오류");
+  return { model, effort };
 }
 export function buildCodexArgs(options: {
   model: string;
@@ -211,18 +237,11 @@ export async function subscription(
   r: Request,
   prompt: string,
 ): Promise<Result> {
+  const { model, effort } = resolveModel(r);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "research-call-"));
   const open = r.actor === "GPT";
-  const model =
-    process.env[open ? "OPENAI_MODEL" : "ANTHROPIC_MODEL"] ||
-    (open ? "gpt-5.6-sol" : "claude-opus-5");
-  const effort =
-    process.env[open ? "OPENAI_REASONING_EFFORT" : "ANTHROPIC_EFFORT"] ||
-    (open ? "high" : "low");
-  if (!["low", "medium", "high", "xhigh", "max"].includes(effort))
-    throw new Error("추론 수준 설정 오류");
   const search =
-    ["research", "conversation"].includes(r.stage) &&
+    SEARCH_STAGES.includes(r.stage) &&
     process.env.ENABLE_WEB_SEARCH !== "false";
   const previousSession = checkedSession(r.sessionId);
   const cwd = sessionWorkdir(r, dir);

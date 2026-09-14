@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rejectUnsafe } from "@/lib/http";
 import { get, save } from "@/lib/store";
 
 export const runtime = "nodejs";
@@ -8,12 +9,8 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; turnId: string }> },
 ) {
-  const origin = req.headers.get("origin");
-  if (origin && new URL(origin).host !== req.headers.get("host"))
-    return NextResponse.json(
-      { error: "다른 사이트의 요청은 허용되지 않습니다." },
-      { status: 403 },
-    );
+  const unsafe = rejectUnsafe(req);
+  if (unsafe) return unsafe;
   try {
     const { id, turnId } = await params;
     if (!/^[0-9a-f-]{36}$/i.test(turnId)) throw new Error("invalid turn");

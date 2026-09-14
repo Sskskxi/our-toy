@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rejectUnsafe } from "@/lib/http";
 import { enqueueMessage } from "@/lib/conversation";
 import { get, save } from "@/lib/store";
 import { messageSchema } from "@/lib/types";
@@ -6,22 +7,12 @@ import { messageSchema } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function sameOrigin(req: NextRequest) {
-  const origin = req.headers.get("origin");
-  return !origin || new URL(origin).host === req.headers.get("host");
-}
-
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!sameOrigin(req))
-    return NextResponse.json(
-      { error: "다른 사이트의 요청은 허용되지 않습니다." },
-      { status: 403 },
-    );
-  if (!(req.headers.get("content-type") ?? "").includes("application/json"))
-    return NextResponse.json({ error: "JSON 요청이 필요합니다." }, { status: 415 });
+  const unsafe = rejectUnsafe(req);
+  if (unsafe) return unsafe;
   try {
     const raw = await req.text();
     if (raw.length > 20000)

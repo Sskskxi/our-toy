@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rejectUnsafe } from "@/lib/http";
 import { create, list } from "@/lib/store";
 import { inputSchema } from "@/lib/types";
+import { modelDefaults } from "@/lib/subscription";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const unsafe = rejectUnsafe(req, { json: false });
+  if (unsafe) return unsafe;
   return NextResponse.json({
     projects: list().map(({ id, topic, status, mode, createdAt, stage }) => ({
       id,
@@ -15,20 +19,12 @@ export async function GET() {
     })),
     defaultMode: process.env.RESEARCH_MODE === "mock" ? "mock" : "subscription",
     liveReady: true,
+    modelDefaults: modelDefaults(),
   });
 }
 export async function POST(req: NextRequest) {
-  const origin = req.headers.get("origin");
-  if (origin && new URL(origin).host !== req.headers.get("host"))
-    return NextResponse.json(
-      { error: "다른 사이트의 요청은 허용되지 않습니다." },
-      { status: 403 },
-    );
-  if (!(req.headers.get("content-type") ?? "").includes("application/json"))
-    return NextResponse.json(
-      { error: "JSON 요청이 필요합니다." },
-      { status: 415 },
-    );
+  const unsafe = rejectUnsafe(req);
+  if (unsafe) return unsafe;
   try {
     const text = await req.text();
     if (text.length > 400000)

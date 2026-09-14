@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { inputSchema, type Project, type Input } from "./types";
+import { inputSchema, type Project, type InputRaw } from "./types";
 export function dataDir() {
   const dir = path.resolve(process.env.DATA_DIR || "./data");
   fs.mkdirSync(dir, { recursive: true });
@@ -40,7 +40,7 @@ export function list(): Project[] {
     .map((f) => get(f.slice(0, -5))!)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
-export function create(raw: Input) {
+export function create(raw: InputRaw) {
   const input = inputSchema.parse(raw);
   const now = new Date().toISOString();
   const p: Project = {

@@ -40,9 +40,9 @@ process.on("SIGINT", () => {
 for (const p of list()) {
   if (p.status === "running") {
     p.status = "interrupted";
-    p.stage = "서버 재시작으로 중단";
+    p.stage = "서버 재시작으로 중단 · 이어서 실행 가능";
     p.error =
-      "이전 실행이 중단되었습니다. 기존 기록을 확인한 뒤 새 프로젝트로 다시 실행하세요.";
+      "서버가 재시작되어 연구가 멈췄습니다. '이어서 실행'을 누르면 완료된 단계는 다시 호출하지 않고 멈춘 단계부터 계속합니다.";
     for (const c of p.calls)
       if (c.status === "running") {
         c.status = "failed";

@@ -1,6 +1,33 @@
 import { z } from "zod";
+export const efforts = ["low", "medium", "high", "xhigh", "max"] as const;
+const modelChoiceSchema = z.object({
+  model: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._:\-\[\]]{0,79}$/, "모델 ID 형식이 올바르지 않습니다.")
+    .optional(),
+  effort: z.enum(efforts).optional(),
+});
+export const modelsSchema = z
+  .object({ GPT: modelChoiceSchema.optional(), Claude: modelChoiceSchema.optional() })
+  .refine((v) => v.GPT?.effort !== "max", {
+    message: "GPT 추론 강도는 xhigh까지 선택할 수 있습니다.",
+  });
+export type ModelChoices = z.infer<typeof modelsSchema>;
+export const interventionSchema = z.object({
+  text: z.string().trim().min(1, "개입 내용을 입력하세요.").max(4000),
+  target: z.enum(["GPT", "Claude", "both"]).default("both"),
+});
+export type Intervention = z.infer<typeof interventionSchema> & {
+  id: string;
+  createdAt: string;
+  appliedAt?: string;
+  appliedRound?: number;
+  appliedStage?: Stage;
+};
 export const inputSchema = z
   .object({
+    models: modelsSchema.optional(),
     referenceText: z.string().max(20000).optional(),
     attachments: z.array(z.object({
       name: z.string().min(1).max(200).regex(/\.(txt|md|csv|json|log)$/i),
@@ -8,6 +35,7 @@ export const inputSchema = z
     })).max(5).optional(),
     topic: z.string().trim().min(5).max(2000),
     mode: z.enum(["mock", "subscription"]).default("mock"),
+    strategy: z.enum(["codraft", "debate"]).default("codraft"),
     maxRounds: z.number().int().min(1).max(30).default(8),
     minRounds: z.number().int().min(1).max(30).optional(),
     noveltyThreshold: z.number().min(0).max(1).default(0.12),
@@ -19,18 +47,25 @@ export const inputSchema = z
     message: "최소 라운드는 최대 라운드 이하여야 합니다.",
   });
 export type Input = z.infer<typeof inputSchema>;
+export type InputRaw = z.input<typeof inputSchema>;
 export type Actor = "GPT" | "Claude";
 export type Stage =
   | "plan"
+  | "draft"
+  | "merge"
+  | "revise"
   | "research"
   | "critique"
   | "rebuttal"
   | "synthesis"
   | "conversation"
   | "conversation-synthesis";
+/** Stages allowed to use web search when ENABLE_WEB_SEARCH is on. */
+export const SEARCH_STAGES: Stage[] = ["research", "draft", "revise", "conversation"];
 export const messageSchema = z.object({
   message: z.string().trim().min(1, "메시지를 입력하세요.").max(10000),
   target: z.enum(["GPT", "Claude", "both"]),
+  models: modelsSchema.optional(),
 });
 export type MessageInput = z.infer<typeof messageSchema>;
 const sourceSchema = z.object({
@@ -94,6 +129,18 @@ export type Call = {
   finishedAt?: string;
   result?: Result;
   error?: string;
+  /** Result reused from a checkpoint when an interrupted run resumed. */
+  replayed?: boolean;
+};
+export type DocumentVersion = {
+  version: number;
+  author: Actor;
+  stage: Stage;
+  round: number;
+  markdown: string;
+  changes: { target: string; reason: string }[];
+  openIssues: string[];
+  createdAt: string;
 };
 export type Round = {
   number: number;
@@ -110,6 +157,7 @@ export type ConversationTurn = {
   attempts: number;
   createdAt: string;
   updatedAt: string;
+  models?: ModelChoices;
   responses: Partial<Record<Actor, Result>>;
   synthesis?: Result;
   answer?: string;
@@ -121,8 +169,11 @@ export type Conversation = {
   memory: string;
   turns: ConversationTurn[];
 };
-export type Project = Omit<Input, "mode"> & {
+export type Project = Omit<Input, "mode" | "strategy"> & {
   mode: "mock" | "subscription" | "live";
+  /** Missing on projects created before shared drafts existed: those are debates. */
+  strategy?: "codraft" | "debate";
+  documents?: DocumentVersion[];
   id: string;
   createdAt: string;
   updatedAt: string;
@@ -139,6 +190,7 @@ export type Project = Omit<Input, "mode"> & {
   tokens: number;
   providerSessions: Partial<Record<Actor, string>>;
   conversation: Conversation;
+  interventions?: Intervention[];
 };
 export type Request = {
   actor: Actor;
@@ -150,5 +202,7 @@ export type Request = {
   mode: "mock" | "subscription" | "live";
   projectId?: string;
   sessionId?: string;
+  model?: string;
+  effort?: string;
 };
 export type Provider = (request: Request) => Promise<Result>;

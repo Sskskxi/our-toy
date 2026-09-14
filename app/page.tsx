@@ -1,8 +1,22 @@
 "use client";
 import { useEffect, useState } from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import type { Project } from "@/lib/types";
+import type { ModelChoices, Project } from "@/lib/types";
+import {
+  DebateThread,
+  DocumentPanel,
+  Elapsed,
+  InterventionBox,
+  KeyInsights,
+  MarkdownField,
+  ModelChips,
+  ModelPicker,
+  RichMarkdown,
+  UpdateButton,
+  cleanModels,
+  firstLine,
+  stageLabels,
+  type ModelDefaults,
+} from "./debate";
 import type {
   AccountUsage,
   AccountUsageWindow,
@@ -18,13 +32,7 @@ const labels: Record<string, string> = {
   complete: "완료",
   failed: "오류",
   interrupted: "중단",
-  plan: "질문 분해",
-  research: "독립 조사",
-  critique: "상호비판",
-  rebuttal: "반박 · 수정",
-  synthesis: "최종 종합",
-  conversation: "후속 대화",
-  "conversation-synthesis": "공동 정리",
+  ...stageLabels,
   "needs-evidence": "근거 필요",
   contested: "논쟁 중",
   "source-linked": "출처 연결",
@@ -36,25 +44,6 @@ function download(name: string, text: string, type = "text/markdown") {
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function SafeMarkdown({ children }: { children: string }) {
-  return (
-    <Markdown
-      remarkPlugins={[remarkGfm]}
-      skipHtml
-      components={{
-        img: () => null,
-        a: ({ href, children }) => (
-          <a href={href} target="_blank" rel="noopener noreferrer">
-            {children}
-          </a>
-        ),
-      }}
-    >
-      {children}
-    </Markdown>
-  );
 }
 
 function resetText(window?: AccountUsageWindow) {
@@ -114,6 +103,7 @@ export default function Page() {
     [project, setProject] = useState<Project | null>(null);
   const [topic, setTopic] = useState(""),
     [mode, setMode] = useState<"mock" | "subscription">("mock"),
+    [strategy, setStrategy] = useState<"codraft" | "debate">("codraft"),
     [rounds, setRounds] = useState(8),
     [minRounds, setMinRounds] = useState(6),
     [threshold, setThreshold] = useState(0.12),
@@ -126,6 +116,9 @@ export default function Page() {
     "GPT" | "Claude" | "both"
   >("both");
   const [messageBusy, setMessageBusy] = useState(false);
+  const [modelDefaults, setModelDefaults] = useState<ModelDefaults>();
+  const [models, setModels] = useState<ModelChoices>({});
+  const [chatModels, setChatModels] = useState<ModelChoices>({});
   const [referenceText, setReferenceText] = useState("");
   const [attachments, setAttachments] = useState<
     { name: string; text: string }[]
@@ -213,6 +206,7 @@ export default function Page() {
         if (alive) {
           setProjects(data.projects);
           setReady(data.liveReady);
+          setModelDefaults(data.modelDefaults);
           if (first) {
             setMode(data.defaultMode);
             first = false;
@@ -233,6 +227,7 @@ export default function Page() {
     if (!id) return;
     let alive = true;
     setProject(null);
+    setChatModels({});
     async function refresh() {
       try {
         const res = await fetch(`/api/projects/${id}`);
@@ -263,6 +258,8 @@ export default function Page() {
           referenceText,
           attachments,
           mode,
+          strategy,
+          models: mode === "subscription" ? cleanModels(models) : undefined,
           maxRounds: rounds,
           minRounds,
           noveltyThreshold: threshold,
@@ -280,16 +277,20 @@ export default function Page() {
       setBusy(false);
     }
   }
-  async function sendMessage(e: React.FormEvent) {
-    e.preventDefault();
-    if (!project || !message.trim()) return;
+  async function sendMessage(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (!project || !message.trim() || messageBusy) return;
     setMessageBusy(true);
     setError("");
     try {
       const res = await fetch(`/api/projects/${project.id}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, target: messageTarget }),
+        body: JSON.stringify({
+          message,
+          target: messageTarget,
+          models: project.mode === "subscription" ? cleanModels(chatModels) : undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw Error(data.error);
@@ -311,13 +312,31 @@ export default function Page() {
       setMessageBusy(false);
     }
   }
+  async function resumeProject() {
+    if (!project) return;
+    setError("");
+    try {
+      const res = await fetch(`/api/projects/${project.id}/resume`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const data = await res.json();
+      if (!res.ok) throw Error(data.error);
+      setProject((current) =>
+        current ? { ...current, status: "queued", stage: "이어서 실행 대기", error: undefined } : current,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
   async function retryMessage(turnId: string) {
     if (!project) return;
     setError("");
     try {
       const res = await fetch(
         `/api/projects/${project.id}/messages/${turnId}/retry`,
-        { method: "POST" },
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
       );
       const data = await res.json();
       if (!res.ok) throw Error(data.error);
@@ -342,7 +361,7 @@ export default function Page() {
     <div className="shell">
       <aside>
         <a className="brand" href="/">
-          <span className="brandIcon">◈</span> Research Studio
+          <span className="brandIcon">◈</span> 우리의장난감
         </a>
         <div className="workspace">PERSONAL WORKSPACE</div>
         <button
@@ -367,12 +386,12 @@ export default function Page() {
               className={`projectButton ${id === p.id ? "selected" : ""}`}
               onClick={() => {
                 setId(p.id);
-                setTab(p.status === "complete" ? "conversation" : "overview");
+                setTab("overview");
               }}
             >
               <span className={`dot ${p.status}`} />
               <span>
-                {p.topic}
+                {firstLine(p.topic)}
                 <small>
                   {labels[p.status]} · {p.mode.toUpperCase()}
                 </small>
@@ -390,7 +409,10 @@ export default function Page() {
           <span>
             워크스페이스 <b>/</b> {project ? "연구 프로젝트" : "새 연구"}
           </span>
-          <span className="pill">LOCAL MVP</span>
+          <span className="updateBanner">
+            <UpdateButton />
+            <span className="pill">LOCAL</span>
+          </span>
         </header>
         <div className="content">
           {!id && (
@@ -442,23 +464,25 @@ export default function Page() {
                 질문을 남기면 조사부터 최종 보고서까지 자동으로 이어집니다.
               </p>
               <form className="composer" onSubmit={submit}>
-                <label htmlFor="topic">무엇을 깊이 연구할까요?</label>
-                <textarea
+                <MarkdownField
                   id="topic"
+                  label="무엇을 깊이 연구할까요?"
                   value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
+                  onChange={setTopic}
                   minLength={5}
                   maxLength={2000}
                   required
-                  placeholder="예: 공공 Multi-Agent 환경에서 정보 분류와 에이전트 권한을 결합하는 정책의 가능성과 한계"
+                  placeholder={
+                    "예: 공공 Multi-Agent 환경에서 정보 분류와 에이전트 권한을 결합하는 정책의 가능성과 한계\n\n### 특히 궁금한 점\n- **권한 위임** 범위\n- 국내외 사례"
+                  }
                 />
-                <label htmlFor="referenceText">참고 텍스트 · 선택</label>
-                <textarea
+                <MarkdownField
                   id="referenceText"
+                  label="참고 텍스트 · 선택"
                   value={referenceText}
-                  onChange={(e) => setReferenceText(e.target.value)}
+                  onChange={setReferenceText}
                   maxLength={20000}
-                  placeholder="기존 메모, 연구 배경, 검토할 문서 내용을 붙여넣으세요."
+                  placeholder="기존 메모, 연구 배경, 검토할 문서 내용을 붙여넣으세요. Markdown 제목·목록을 쓰면 모델이 구조를 더 잘 파악합니다."
                 />
                 <label htmlFor="attachments">참고 파일 · 선택</label>
                 <input
@@ -514,6 +538,16 @@ export default function Page() {
                     </select>
                   </label>
                   <label>
+                    협업 방식
+                    <select
+                      value={strategy}
+                      onChange={(e) => setStrategy(e.target.value as "codraft" | "debate")}
+                    >
+                      <option value="codraft">공동 초안 · 합치고 번갈아 수정 (권장)</option>
+                      <option value="debate">토론 · 조사→비판→반박</option>
+                    </select>
+                  </label>
+                  <label>
                     최대 라운드
                     <select
                       value={rounds}
@@ -557,9 +591,35 @@ export default function Page() {
                     </select>
                   </label>
                 </div>
+                {mode === "subscription" ? (
+                  <div className="modelSection">
+                    <div className="modelSectionHead">
+                      <b>모델 선택</b>
+                      <span>
+                        비워 두면 .env 기본값을 씁니다. 내 구독 계정에서 쓸 수 있는
+                        모델이어야 합니다.
+                      </span>
+                    </div>
+                    <ModelPicker
+                      value={models}
+                      onChange={setModels}
+                      defaults={modelDefaults}
+                      disabled={busy}
+                    />
+                  </div>
+                ) : (
+                  <p className="help">
+                    Mock 모드는 모델을 호출하지 않습니다. 모델을 고르려면 구독 모드를
+                    선택하세요.
+                  </p>
+                )}
                 <p className="help">
                   최소 {minRounds}라운드 이후 수렴을 판단합니다. 최대 {rounds}
-                  라운드 · 모델 호출 최대 {2 + 6 * rounds}회 (재시도·검색 제외).
+                  라운드 · 모델 호출 최대{" "}
+                  {strategy === "codraft" ? 5 + 2 * rounds : 2 + 6 * rounds}회 (재시도·검색 제외).
+                  {strategy === "codraft"
+                    ? " 공동 초안: 두 모델이 각자 초안을 쓰고, GPT가 합친 문서를 Claude와 GPT가 번갈아 고칩니다. 둘 다 더 고칠 게 없다고 하면 끝납니다."
+                    : " 토론: 매 라운드 독립 조사 → 상호비판 → 반박을 반복합니다."}
                   최소와 최대를 같게 설정하면 지정한 라운드를 모두 수행합니다.
                 </p>
                 <div className="formBottom">
@@ -607,7 +667,14 @@ export default function Page() {
                   <div className="eyebrow">
                     AUTONOMOUS RESEARCH / {project.mode.toUpperCase()}
                   </div>
-                  <h1 className="projectTitle">{project.topic}</h1>
+                  <h1 className="projectTitle">{firstLine(project.topic)}</h1>
+                  {project.topic.trim() !== firstLine(project.topic) && (
+                    <details className="topicDetails">
+                      <summary>연구 질문 전문 보기</summary>
+                      <RichMarkdown>{project.topic}</RichMarkdown>
+                    </details>
+                  )}
+                  <ModelChips project={project} defaults={modelDefaults} />
                 </div>
                 <button
                   className="secondary"
@@ -670,13 +737,26 @@ export default function Page() {
                   {project.error}
                 </div>
               )}
+              {(project.status === "failed" || project.status === "interrupted") &&
+                project.mode !== "live" && (
+                  <div className="resumeBar">
+                    <span>
+                      완료된 {project.calls.filter((c) => c.status === "complete").length}개 단계는 저장돼
+                      있습니다. 한도·로그인 문제를 해결한 뒤 이어서 실행하면 멈춘 단계부터 다시 호출합니다.
+                    </span>
+                    <button className="primary" onClick={() => void resumeProject()}>
+                      이어서 실행 ↻
+                    </button>
+                  </div>
+                )}
               {project.stopReason && (
                 <p className="stopReason">종료 사유 · {project.stopReason}</p>
               )}
               <div className="tabs" role="tablist" aria-label="연구 보기">
                 {[
+                  ["overview", project.strategy === "codraft" ? "협업 과정" : "토론"],
+                  ...(project.strategy === "codraft" ? [["document", "공동 문서"]] : []),
                   ["conversation", "대화"],
-                  ["overview", "진행 과정"],
                   ["claims", "주장 · 근거"],
                   ["questions", "연구 질문"],
                   ["report", "최종 보고서"],
@@ -725,9 +805,16 @@ export default function Page() {
                         <article className="chatTurn" key={turn.id}>
                           <div className="chatMessage userBubble">
                             <small>
-                              나 · {turn.target === "both" ? "GPT + Claude" : turn.target}
+                              나 · {turn.target === "both" ? "GPT + Claude" : turn.target}{" "}
+                              {turn.status !== "queued" && (
+                                <Elapsed
+                                  start={turn.createdAt}
+                                  end={turn.updatedAt}
+                                  running={turn.status === "running"}
+                                />
+                              )}
                             </small>
-                            <p>{turn.userText}</p>
+                            <RichMarkdown>{turn.userText}</RichMarkdown>
                           </div>
                           {turn.status === "queued" && (
                             <div className="chatProgress" role="status">
@@ -746,29 +833,36 @@ export default function Page() {
                               <small>
                                 {turn.target === "both" ? "공동 정리" : turn.target}
                               </small>
-                              <SafeMarkdown>{turn.answer}</SafeMarkdown>
+                              <RichMarkdown>{turn.answer}</RichMarkdown>
                             </div>
                           )}
-                          {(turn.responses.GPT || turn.responses.Claude) && (
-                            <details className="modelDrafts">
-                              <summary>
-                                {turn.target === "both"
-                                  ? "모델별 답변 보기"
-                                  : "응답 정보 보기"}
-                              </summary>
-                              {(["GPT", "Claude"] as const).map(
-                                (actor) =>
-                                  turn.responses[actor] && (
-                                    <div className="modelDraft" key={actor}>
-                                      <b>{actor}</b>
-                                      <SafeMarkdown>
-                                        {turn.responses[actor]!.answer.summary}
-                                      </SafeMarkdown>
-                                      <small>{turn.responses[actor]!.model}</small>
-                                    </div>
-                                  ),
-                              )}
-                            </details>
+                          {turn.target === "both" &&
+                            (turn.responses.GPT || turn.responses.Claude) && (
+                              <details className="modelDrafts">
+                                <summary>GPT · Claude 답변 나란히 보기</summary>
+                                <div className="draftGrid">
+                                  {(["GPT", "Claude"] as const).map(
+                                    (actor) =>
+                                      turn.responses[actor] && (
+                                        <div
+                                          className={`modelDraft ${actor.toLowerCase()}`}
+                                          key={actor}
+                                        >
+                                          <b>{actor}</b>
+                                          <small>{turn.responses[actor]!.model}</small>
+                                          <RichMarkdown>
+                                            {turn.responses[actor]!.answer.summary}
+                                          </RichMarkdown>
+                                        </div>
+                                      ),
+                                  )}
+                                </div>
+                              </details>
+                            )}
+                          {turn.target !== "both" && turn.responses[turn.target] && (
+                            <small className="turnModel">
+                              {turn.responses[turn.target]!.model}
+                            </small>
                           )}
                           {turn.status === "failed" && (
                             <div className="error chatError" role="alert">
@@ -785,48 +879,84 @@ export default function Page() {
                       ))}
                     </div>
                     <form className="chatComposer" onSubmit={sendMessage}>
-                      <label htmlFor="messageTarget">응답 대상</label>
-                      <select
-                        id="messageTarget"
-                        value={messageTarget}
-                        disabled={project.status !== "complete" || messageBusy}
-                        onChange={(e) =>
-                          setMessageTarget(
-                            e.target.value as "GPT" | "Claude" | "both",
-                          )
-                        }
-                      >
-                        <option value="both">GPT + Claude 둘 다</option>
-                        <option value="GPT">GPT만</option>
-                        <option value="Claude">Claude만</option>
-                      </select>
-                      <label htmlFor="followupMessage" className="srOnly">
-                        후속 질문
-                      </label>
-                      <textarea
+                      <MarkdownField
                         id="followupMessage"
+                        label="후속 질문"
+                        compact
                         value={message}
                         disabled={project.status !== "complete" || messageBusy}
-                        onChange={(e) => setMessage(e.target.value)}
+                        onChange={setMessage}
                         minLength={1}
                         maxLength={10000}
                         required
                         placeholder={
                           project.status === "complete"
                             ? "이 연구에 이어서 질문하거나, 다음 작업을 요청하세요."
-                            : "초기 연구가 완료되면 대화를 시작할 수 있습니다."
+                            : "초기 연구가 완료되면 대화를 시작할 수 있습니다. 진행 중에는 토론 탭에서 개입할 수 있습니다."
                         }
+                        onSubmitShortcut={() => void sendMessage()}
                       />
-                      <button
-                        className="primary"
-                        disabled={
-                          project.status !== "complete" ||
-                          messageBusy ||
-                          !message.trim()
-                        }
-                      >
-                        {messageBusy ? "저장 중…" : "보내기 ↗"}
-                      </button>
+                      <div className="chatActions">
+                        <label>
+                          응답 대상
+                          <select
+                            id="messageTarget"
+                            value={messageTarget}
+                            disabled={project.status !== "complete" || messageBusy}
+                            onChange={(e) =>
+                              setMessageTarget(
+                                e.target.value as "GPT" | "Claude" | "both",
+                              )
+                            }
+                          >
+                            <option value="both">GPT + Claude 둘 다</option>
+                            <option value="GPT">GPT만</option>
+                            <option value="Claude">Claude만</option>
+                          </select>
+                        </label>
+                        {project.mode === "subscription" && (
+                          <details className="chatModelDetails">
+                            <summary>이번 질문의 모델 바꾸기</summary>
+                            <ModelPicker
+                              value={chatModels}
+                              onChange={setChatModels}
+                              defaults={{
+                                GPT: {
+                                  model:
+                                    project.models?.GPT?.model ??
+                                    modelDefaults?.GPT.model ??
+                                    "",
+                                  effort:
+                                    project.models?.GPT?.effort ??
+                                    modelDefaults?.GPT.effort ??
+                                    "",
+                                },
+                                Claude: {
+                                  model:
+                                    project.models?.Claude?.model ??
+                                    modelDefaults?.Claude.model ??
+                                    "",
+                                  effort:
+                                    project.models?.Claude?.effort ??
+                                    modelDefaults?.Claude.effort ??
+                                    "",
+                                },
+                              }}
+                              disabled={messageBusy}
+                            />
+                          </details>
+                        )}
+                        <button
+                          className="primary"
+                          disabled={
+                            project.status !== "complete" ||
+                            messageBusy ||
+                            !message.trim()
+                          }
+                        >
+                          {messageBusy ? "저장 중…" : "보내기 ↗"}
+                        </button>
+                      </div>
                     </form>
                   </>
                 )}
@@ -870,72 +1000,42 @@ export default function Page() {
                 )}
                 {tab === "overview" && (
                   <>
+                    <KeyInsights project={project} />
                     <div className="sectionHeading">
-                      <h2>연구 타임라인</h2>
-                      <span>진행 상황 자동 갱신</span>
-                    </div>
-                    {project.status === "queued" && (
-                      <p className="empty">
-                        작업자 실행을 기다리고 있습니다. npm run dev 또는 npm
-                        start가 실행되어 있어야 합니다.
-                      </p>
-                    )}
-                    {project.rounds.map((r) => (
-                      <div className="roundInfo" key={r.number}>
-                        ROUND {String(r.number).padStart(2, "0")}
-                        <span>
-                          질문 {r.questions.length}개 ·{" "}
-                          {r.novelty === undefined
-                            ? "진행 중"
-                            : `새 정보 ${Math.round(r.novelty * 100)}% · 재조사 ${r.requeued.length}개`}
-                        </span>
+                      <div>
+                        <h2>
+                          {project.strategy === "codraft" ? "GPT ↔ Claude 공동 작업" : "GPT ↔ Claude 토론"}
+                        </h2>
+                        <p className="help">
+                          {project.strategy === "codraft"
+                            ? "각자 초안 → 합본 → 번갈아 수정 순서로, 누가 무엇을 왜 고쳤는지 대화처럼 보여줍니다."
+                            : "라운드마다 독립 조사 → 상호비판 → 반박 순서로 두 모델의 대화를 나란히 보여줍니다."}
+                        </p>
                       </div>
-                    ))}
-                    <div className="timeline">
-                      {project.calls.map((c, i) => (
-                        <details key={i} className="call">
-                          <summary>
-                            <span className={`avatar ${c.actor.toLowerCase()}`}>
-                              {c.actor === "GPT" ? "G" : "C"}
-                            </span>
-                            <span>
-                              <b>{labels[c.stage]}</b>
-                              <small>
-                                {c.actor} ·{" "}
-                                {c.round === 0 ? "준비" : `라운드 ${c.round}`}
-                              </small>
-                            </span>
-                            <span className={`callStatus ${c.status}`}>
-                              {labels[c.status] ?? c.status}
-                            </span>
-                          </summary>
-                          <div className="callBody">
-                            {c.error && <p className="error">{c.error}</p>}
-                            {c.result ? (
-                              <>
-                                <p className="prewrap">
-                                  {c.result.answer.summary}
-                                </p>
-                                {c.result.answer.claims.map((a, j) => (
-                                  <p key={j}>• {a.statement}</p>
-                                ))}
-                                {c.result.answer.critiques.map((a, j) => (
-                                  <blockquote key={j}>
-                                    <b>{a.claim}</b>
-                                    <p>{a.objection}</p>
-                                  </blockquote>
-                                ))}
-                                <small>
-                                  {c.result.model} · {c.result.tokens} tokens
-                                </small>
-                              </>
-                            ) : (
-                              <p>응답 대기 중…</p>
-                            )}
-                          </div>
-                        </details>
-                      ))}
+                      <span>
+                        {project.status === "running" ? "실시간 갱신 중" : labels[project.status]}
+                      </span>
                     </div>
+                    <DebateThread
+                      project={project}
+                      onOpenReport={() => setTab("report")}
+                    />
+                    <InterventionBox project={project} onError={setError} />
+                  </>
+                )}
+                {tab === "document" && (
+                  <>
+                    <div className="sectionHeading">
+                      <div>
+                        <h2>공동 문서</h2>
+                        <p className="help">
+                          두 모델이 번갈아 고친 버전을 모두 보관합니다. 버전을 눌러 무엇이 바뀌었는지
+                          확인하세요.
+                        </p>
+                      </div>
+                      <span>{project.documents?.length ?? 0}개 버전</span>
+                    </div>
+                    <DocumentPanel project={project} />
                   </>
                 )}
                 {tab === "claims" && (
@@ -1046,7 +1146,7 @@ export default function Page() {
                         </button>
                       </div>
                       <article className="report">
-                        <SafeMarkdown>{project.report}</SafeMarkdown>
+                        <RichMarkdown>{project.report}</RichMarkdown>
                       </article>
                     </>
                   ) : (
@@ -1062,7 +1162,7 @@ export default function Page() {
             </>
           )}
           <footer>
-            RESEARCH STUDIO <span>Independent thinking. Shared evidence.</span>
+            우리의장난감 <span>GPT와 Claude가 함께 쓰는 연구 노트</span>
           </footer>
         </div>
       </main>
