@@ -77,3 +77,28 @@ test("revisions merge by section: replace, append, key points, empty and full do
   assert.equal(mergeSections(doc, doc), doc);
   assert.match(mergeSections(doc, "##   1.  배경\n다른 공백"), /다른 공백/);
 });
+
+test("budget: the run stops before the next call once tokens reach the limit, and resumes with a higher one", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "budget-tests-"));
+  const { create, get } = await import("../lib/store");
+  const { run } = await import("../lib/engine");
+  const { mock } = await import("../lib/mock");
+  const p = create({ topic: "예산 한도 시험 주제", mode: "mock", strategy: "codraft", maxRounds: 2, minRounds: 2, budgetTokens: 10_000 });
+  let calls = 0;
+  const provider = async (r: Parameters<typeof mock>[0]) => { calls++; return { ...(await mock(r)), tokens: 6_000 }; };
+  await run(p, provider);
+  assert.equal(p.status, "interrupted");
+  assert.match(p.error!, /예산 한도/);
+  assert.equal(p.autoResume, undefined);
+  // Both drafts start together while under the limit; the merge is blocked.
+  assert.equal(calls, 3);
+  assert.equal(p.calls.some((c) => c.stage === "merge"), false);
+  const again = get(p.id)!;
+  again.budgetTokens = 10_000_000;
+  again.status = "queued";
+  await run(again, provider);
+  assert.equal(again.status, "complete");
+});

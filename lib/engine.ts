@@ -100,6 +100,16 @@ export function referenceContext(p: Project, stage: Stage, maxChars = 60000) {
   };
 }
 
+/** The project reached its token budget; stops like a user stop, never auto-resumes. */
+export class BudgetExceeded extends Error {
+  constructor(used: number, budget: number) {
+    super(
+      `예산 한도에 도달해 멈췄어요 (사용 ${used.toLocaleString()} / 한도 ${budget.toLocaleString()} 토큰). 한도를 올려 이어서 실행할 수 있어요.`,
+    );
+    this.name = "BudgetExceeded";
+  }
+}
+
 const MUST_HAVE_SUMMARY: Stage[] = ["draft", "merge", "synthesis"];
 export function assertUsable(stage: Stage, result: Result) {
   if (stage === "plan" && !result.answer.questions.length)
@@ -249,7 +259,10 @@ export async function run(
     context: unknown,
   ): Promise<Result> {
     const hit = cached(callKey({ actor, stage, round }));
-    if (!hit) throwIfCancelled(p.id);
+    if (!hit) {
+      throwIfCancelled(p.id);
+      if (p.budgetTokens && p.tokens >= p.budgetTokens) throw new BudgetExceeded(p.tokens, p.budgetTokens);
+    }
     if (hit?.result) {
       p.calls.push({ ...hit, replayed: true });
       return hit.result;
@@ -384,7 +397,12 @@ export async function run(
     p.autoResume = undefined;
     expireUndelivered(p);
   } catch (error) {
-    if (error instanceof CancelledError || isCancelRequested(p.id)) {
+    if (error instanceof BudgetExceeded) {
+      p.status = "interrupted";
+      p.error = error.message;
+      p.stage = "예산 한도 도달 · 한도를 올려 이어서 실행 가능";
+      p.autoResume = undefined;
+    } else if (error instanceof CancelledError || isCancelRequested(p.id)) {
       p.status = "interrupted";
       p.error = new CancelledError().message;
       p.stage = "사용자 중지 · 이어서 실행 가능";

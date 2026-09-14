@@ -44,6 +44,10 @@ export const inputSchema = z
     maxRounds: z.number().int().min(1).max(30).default(8),
     minRounds: z.number().int().min(1).max(30).optional(),
     noveltyThreshold: z.number().min(0).max(1).default(0.12),
+    /** Stop (resumable) once the project has used this many tokens. */
+    budgetTokens: z.number().int().min(10_000).max(50_000_000).optional(),
+    /** Report structure; "contest" adds contest proposal sections. */
+    reportTemplate: z.enum(["default", "contest"]).default("default"),
   })
   .refine(v => (v.referenceText?.length ?? 0) + (v.attachments ?? []).reduce((n, f) => n + f.text.length, 0) <= 60000, {
     message: "참고 자료는 합계 60,000자까지 가능합니다.",

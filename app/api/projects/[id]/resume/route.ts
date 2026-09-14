@@ -47,6 +47,20 @@ export async function POST(
         if (models.data[actor])
           p.models = { ...p.models, [actor]: { ...p.models?.[actor], ...models.data[actor] } };
     }
+    if (body?.budgetTokens !== undefined) {
+      const budget = Number(body.budgetTokens);
+      if (!Number.isInteger(budget) || budget < 10_000 || budget > 50_000_000)
+        return NextResponse.json(
+          { error: "예산 한도는 10,000~50,000,000 토큰 사이 정수여야 해요." },
+          { status: 400 },
+        );
+      if (budget <= p.tokens)
+        return NextResponse.json(
+          { error: `이미 ${p.tokens.toLocaleString()} 토큰을 썼어요. 그보다 큰 한도를 정해 주세요.` },
+          { status: 400 },
+        );
+      p.budgetTokens = budget;
+    }
     p.status = "queued";
     p.stage = "이어서 실행 대기";
     p.error = undefined;
