@@ -1,0 +1,1151 @@
+{
+  "topic": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리",
+  "mode": "mock",
+  "maxRounds": 4,
+  "noveltyThreshold": 0.12,
+  "id": "a0fcf0ce-f35e-412f-a97d-48f8859dd66c",
+  "createdAt": "2026-09-12T08:17:19.721Z",
+  "updatedAt": "2026-09-12T08:17:23.339Z",
+  "status": "complete",
+  "stage": "연구 완료",
+  "calls": [
+    {
+      "actor": "GPT",
+      "stage": "plan",
+      "round": 0,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:19.786Z",
+      "result": {
+        "answer": {
+          "questions": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "claims": [],
+          "critiques": [],
+          "unresolved": [],
+          "resolved": [],
+          "summary": "GPT · plan · 라운드 0: 자동 연구 흐름의 합성 예시입니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-gpt"
+      },
+      "finishedAt": "2026-09-12T08:17:20.038Z"
+    },
+    {
+      "actor": "GPT",
+      "stage": "research",
+      "round": 1,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:20.039Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+              "sources": [
+                {
+                  "title": "시뮬레이션 근거 — 실제 자료 아님",
+                  "url": "https://example.com/mock/gpt",
+                  "excerpt": "흐름 검증을 위한 합성 예시입니다."
+                }
+              ],
+              "confidence": 0.6
+            }
+          ],
+          "critiques": [],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?"
+          ],
+          "summary": "GPT · research · 라운드 1: 자동 연구 흐름의 합성 예시입니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-gpt"
+      },
+      "finishedAt": "2026-09-12T08:17:20.289Z"
+    },
+    {
+      "actor": "Claude",
+      "stage": "research",
+      "round": 1,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:20.039Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+              "sources": [
+                {
+                  "title": "시뮬레이션 근거 — 실제 자료 아님",
+                  "url": "https://example.com/mock/claude",
+                  "excerpt": "흐름 검증을 위한 합성 예시입니다."
+                }
+              ],
+              "confidence": 0.6
+            }
+          ],
+          "critiques": [],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?"
+          ],
+          "summary": "Claude · research · 라운드 1: 자동 연구 흐름의 합성 예시입니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-claude"
+      },
+      "finishedAt": "2026-09-12T08:17:20.290Z"
+    },
+    {
+      "actor": "GPT",
+      "stage": "critique",
+      "round": 1,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:20.291Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [],
+          "critiques": [
+            {
+              "claim": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+              "objection": "방향 제시는 타당하지만 실제 효과를 뒷받침할 실증 근거가 부족하다."
+            }
+          ],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [],
+          "summary": "GPT · critique · 라운드 1: 자동 연구 흐름의 합성 예시입니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-gpt"
+      },
+      "finishedAt": "2026-09-12T08:17:20.542Z"
+    },
+    {
+      "actor": "Claude",
+      "stage": "critique",
+      "round": 1,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:20.291Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [],
+          "critiques": [
+            {
+              "claim": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+              "objection": "방향 제시는 타당하지만 실제 효과를 뒷받침할 실증 근거가 부족하다."
+            }
+          ],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [],
+          "summary": "Claude · critique · 라운드 1: 자동 연구 흐름의 합성 예시입니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-claude"
+      },
+      "finishedAt": "2026-09-12T08:17:20.543Z"
+    },
+    {
+      "actor": "GPT",
+      "stage": "rebuttal",
+      "round": 1,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:20.544Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+              "sources": [
+                {
+                  "title": "시뮬레이션 근거 — 실제 자료 아님",
+                  "url": "https://example.com/mock/gpt",
+                  "excerpt": "흐름 검증을 위한 합성 예시입니다."
+                }
+              ],
+              "confidence": 0.6
+            }
+          ],
+          "critiques": [],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?"
+          ],
+          "summary": "GPT · rebuttal · 라운드 1: 비판을 수용하고 효과 단정을 유보합니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-gpt"
+      },
+      "finishedAt": "2026-09-12T08:17:20.795Z"
+    },
+    {
+      "actor": "Claude",
+      "stage": "rebuttal",
+      "round": 1,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:20.544Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+              "sources": [
+                {
+                  "title": "시뮬레이션 근거 — 실제 자료 아님",
+                  "url": "https://example.com/mock/claude",
+                  "excerpt": "흐름 검증을 위한 합성 예시입니다."
+                }
+              ],
+              "confidence": 0.6
+            }
+          ],
+          "critiques": [],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?"
+          ],
+          "summary": "Claude · rebuttal · 라운드 1: 비판을 수용하고 효과 단정을 유보합니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-claude"
+      },
+      "finishedAt": "2026-09-12T08:17:20.795Z"
+    },
+    {
+      "actor": "GPT",
+      "stage": "research",
+      "round": 2,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:20.797Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+              "sources": [
+                {
+                  "title": "시뮬레이션 근거 — 실제 자료 아님",
+                  "url": "https://example.com/mock/gpt",
+                  "excerpt": "흐름 검증을 위한 합성 예시입니다."
+                }
+              ],
+              "confidence": 0.6
+            },
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다.",
+              "sources": [],
+              "confidence": 0.4
+            }
+          ],
+          "critiques": [],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다."
+          ],
+          "summary": "GPT · research · 라운드 2: 자동 연구 흐름의 합성 예시입니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-gpt"
+      },
+      "finishedAt": "2026-09-12T08:17:21.049Z"
+    },
+    {
+      "actor": "Claude",
+      "stage": "research",
+      "round": 2,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:20.798Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+              "sources": [
+                {
+                  "title": "시뮬레이션 근거 — 실제 자료 아님",
+                  "url": "https://example.com/mock/claude",
+                  "excerpt": "흐름 검증을 위한 합성 예시입니다."
+                }
+              ],
+              "confidence": 0.6
+            },
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다.",
+              "sources": [],
+              "confidence": 0.4
+            }
+          ],
+          "critiques": [],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다."
+          ],
+          "summary": "Claude · research · 라운드 2: 자동 연구 흐름의 합성 예시입니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-claude"
+      },
+      "finishedAt": "2026-09-12T08:17:21.050Z"
+    },
+    {
+      "actor": "GPT",
+      "stage": "critique",
+      "round": 2,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:21.050Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [],
+          "critiques": [
+            {
+              "claim": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+              "objection": "방향 제시는 타당하지만 실제 효과를 뒷받침할 실증 근거가 부족하다."
+            }
+          ],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [],
+          "summary": "GPT · critique · 라운드 2: 자동 연구 흐름의 합성 예시입니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-gpt"
+      },
+      "finishedAt": "2026-09-12T08:17:21.302Z"
+    },
+    {
+      "actor": "Claude",
+      "stage": "critique",
+      "round": 2,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:21.051Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [],
+          "critiques": [
+            {
+              "claim": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+              "objection": "방향 제시는 타당하지만 실제 효과를 뒷받침할 실증 근거가 부족하다."
+            }
+          ],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [],
+          "summary": "Claude · critique · 라운드 2: 자동 연구 흐름의 합성 예시입니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-claude"
+      },
+      "finishedAt": "2026-09-12T08:17:21.303Z"
+    },
+    {
+      "actor": "GPT",
+      "stage": "rebuttal",
+      "round": 2,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:21.303Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+              "sources": [
+                {
+                  "title": "시뮬레이션 근거 — 실제 자료 아님",
+                  "url": "https://example.com/mock/gpt",
+                  "excerpt": "흐름 검증을 위한 합성 예시입니다."
+                }
+              ],
+              "confidence": 0.6
+            },
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다.",
+              "sources": [],
+              "confidence": 0.4
+            }
+          ],
+          "critiques": [],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다."
+          ],
+          "summary": "GPT · rebuttal · 라운드 2: 비판을 수용하고 효과 단정을 유보합니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-gpt"
+      },
+      "finishedAt": "2026-09-12T08:17:21.555Z"
+    },
+    {
+      "actor": "Claude",
+      "stage": "rebuttal",
+      "round": 2,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:21.304Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+              "sources": [
+                {
+                  "title": "시뮬레이션 근거 — 실제 자료 아님",
+                  "url": "https://example.com/mock/claude",
+                  "excerpt": "흐름 검증을 위한 합성 예시입니다."
+                }
+              ],
+              "confidence": 0.6
+            },
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다.",
+              "sources": [],
+              "confidence": 0.4
+            }
+          ],
+          "critiques": [],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다."
+          ],
+          "summary": "Claude · rebuttal · 라운드 2: 비판을 수용하고 효과 단정을 유보합니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-claude"
+      },
+      "finishedAt": "2026-09-12T08:17:21.556Z"
+    },
+    {
+      "actor": "GPT",
+      "stage": "research",
+      "round": 3,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:21.560Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+              "sources": [
+                {
+                  "title": "시뮬레이션 근거 — 실제 자료 아님",
+                  "url": "https://example.com/mock/gpt",
+                  "excerpt": "흐름 검증을 위한 합성 예시입니다."
+                }
+              ],
+              "confidence": 0.6
+            },
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다.",
+              "sources": [],
+              "confidence": 0.4
+            }
+          ],
+          "critiques": [],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다."
+          ],
+          "summary": "GPT · research · 라운드 3: 자동 연구 흐름의 합성 예시입니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-gpt"
+      },
+      "finishedAt": "2026-09-12T08:17:21.812Z"
+    },
+    {
+      "actor": "Claude",
+      "stage": "research",
+      "round": 3,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:21.561Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+              "sources": [
+                {
+                  "title": "시뮬레이션 근거 — 실제 자료 아님",
+                  "url": "https://example.com/mock/claude",
+                  "excerpt": "흐름 검증을 위한 합성 예시입니다."
+                }
+              ],
+              "confidence": 0.6
+            },
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다.",
+              "sources": [],
+              "confidence": 0.4
+            }
+          ],
+          "critiques": [],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다."
+          ],
+          "summary": "Claude · research · 라운드 3: 자동 연구 흐름의 합성 예시입니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-claude"
+      },
+      "finishedAt": "2026-09-12T08:17:21.813Z"
+    },
+    {
+      "actor": "GPT",
+      "stage": "critique",
+      "round": 3,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:21.814Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [],
+          "critiques": [
+            {
+              "claim": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+              "objection": "방향 제시는 타당하지만 실제 효과를 뒷받침할 실증 근거가 부족하다."
+            }
+          ],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [],
+          "summary": "GPT · critique · 라운드 3: 자동 연구 흐름의 합성 예시입니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-gpt"
+      },
+      "finishedAt": "2026-09-12T08:17:22.065Z"
+    },
+    {
+      "actor": "Claude",
+      "stage": "critique",
+      "round": 3,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:21.814Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [],
+          "critiques": [
+            {
+              "claim": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+              "objection": "방향 제시는 타당하지만 실제 효과를 뒷받침할 실증 근거가 부족하다."
+            }
+          ],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [],
+          "summary": "Claude · critique · 라운드 3: 자동 연구 흐름의 합성 예시입니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-claude"
+      },
+      "finishedAt": "2026-09-12T08:17:22.065Z"
+    },
+    {
+      "actor": "GPT",
+      "stage": "rebuttal",
+      "round": 3,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:22.066Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+              "sources": [
+                {
+                  "title": "시뮬레이션 근거 — 실제 자료 아님",
+                  "url": "https://example.com/mock/gpt",
+                  "excerpt": "흐름 검증을 위한 합성 예시입니다."
+                }
+              ],
+              "confidence": 0.6
+            },
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다.",
+              "sources": [],
+              "confidence": 0.4
+            }
+          ],
+          "critiques": [],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다."
+          ],
+          "summary": "GPT · rebuttal · 라운드 3: 비판을 수용하고 효과 단정을 유보합니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-gpt"
+      },
+      "finishedAt": "2026-09-12T08:17:22.318Z"
+    },
+    {
+      "actor": "Claude",
+      "stage": "rebuttal",
+      "round": 3,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:22.067Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+              "sources": [
+                {
+                  "title": "시뮬레이션 근거 — 실제 자료 아님",
+                  "url": "https://example.com/mock/claude",
+                  "excerpt": "흐름 검증을 위한 합성 예시입니다."
+                }
+              ],
+              "confidence": 0.6
+            },
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다.",
+              "sources": [],
+              "confidence": 0.4
+            }
+          ],
+          "critiques": [],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다."
+          ],
+          "summary": "Claude · rebuttal · 라운드 3: 비판을 수용하고 효과 단정을 유보합니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-claude"
+      },
+      "finishedAt": "2026-09-12T08:17:22.319Z"
+    },
+    {
+      "actor": "GPT",
+      "stage": "research",
+      "round": 4,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:22.321Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+              "sources": [
+                {
+                  "title": "시뮬레이션 근거 — 실제 자료 아님",
+                  "url": "https://example.com/mock/gpt",
+                  "excerpt": "흐름 검증을 위한 합성 예시입니다."
+                }
+              ],
+              "confidence": 0.6
+            },
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다.",
+              "sources": [],
+              "confidence": 0.4
+            }
+          ],
+          "critiques": [],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다."
+          ],
+          "summary": "GPT · research · 라운드 4: 자동 연구 흐름의 합성 예시입니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-gpt"
+      },
+      "finishedAt": "2026-09-12T08:17:22.573Z"
+    },
+    {
+      "actor": "Claude",
+      "stage": "research",
+      "round": 4,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:22.322Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+              "sources": [
+                {
+                  "title": "시뮬레이션 근거 — 실제 자료 아님",
+                  "url": "https://example.com/mock/claude",
+                  "excerpt": "흐름 검증을 위한 합성 예시입니다."
+                }
+              ],
+              "confidence": 0.6
+            },
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다.",
+              "sources": [],
+              "confidence": 0.4
+            }
+          ],
+          "critiques": [],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다."
+          ],
+          "summary": "Claude · research · 라운드 4: 자동 연구 흐름의 합성 예시입니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-claude"
+      },
+      "finishedAt": "2026-09-12T08:17:22.574Z"
+    },
+    {
+      "actor": "GPT",
+      "stage": "critique",
+      "round": 4,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:22.574Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [],
+          "critiques": [
+            {
+              "claim": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+              "objection": "방향 제시는 타당하지만 실제 효과를 뒷받침할 실증 근거가 부족하다."
+            }
+          ],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [],
+          "summary": "GPT · critique · 라운드 4: 자동 연구 흐름의 합성 예시입니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-gpt"
+      },
+      "finishedAt": "2026-09-12T08:17:22.826Z"
+    },
+    {
+      "actor": "Claude",
+      "stage": "critique",
+      "round": 4,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:22.575Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [],
+          "critiques": [
+            {
+              "claim": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+              "objection": "방향 제시는 타당하지만 실제 효과를 뒷받침할 실증 근거가 부족하다."
+            }
+          ],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [],
+          "summary": "Claude · critique · 라운드 4: 자동 연구 흐름의 합성 예시입니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-claude"
+      },
+      "finishedAt": "2026-09-12T08:17:22.828Z"
+    },
+    {
+      "actor": "GPT",
+      "stage": "rebuttal",
+      "round": 4,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:22.831Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+              "sources": [
+                {
+                  "title": "시뮬레이션 근거 — 실제 자료 아님",
+                  "url": "https://example.com/mock/gpt",
+                  "excerpt": "흐름 검증을 위한 합성 예시입니다."
+                }
+              ],
+              "confidence": 0.6
+            },
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다.",
+              "sources": [],
+              "confidence": 0.4
+            }
+          ],
+          "critiques": [],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다."
+          ],
+          "summary": "GPT · rebuttal · 라운드 4: 비판을 수용하고 효과 단정을 유보합니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-gpt"
+      },
+      "finishedAt": "2026-09-12T08:17:23.083Z"
+    },
+    {
+      "actor": "Claude",
+      "stage": "rebuttal",
+      "round": 4,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:22.832Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+              "sources": [
+                {
+                  "title": "시뮬레이션 근거 — 실제 자료 아님",
+                  "url": "https://example.com/mock/claude",
+                  "excerpt": "흐름 검증을 위한 합성 예시입니다."
+                }
+              ],
+              "confidence": 0.6
+            },
+            {
+              "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다.",
+              "sources": [],
+              "confidence": 0.4
+            }
+          ],
+          "critiques": [],
+          "unresolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+          ],
+          "resolved": [
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+            "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+            "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다."
+          ],
+          "summary": "Claude · rebuttal · 라운드 4: 비판을 수용하고 효과 단정을 유보합니다."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-claude"
+      },
+      "finishedAt": "2026-09-12T08:17:23.084Z"
+    },
+    {
+      "actor": "GPT",
+      "stage": "synthesis",
+      "round": 4,
+      "status": "complete",
+      "startedAt": "2026-09-12T08:17:23.086Z",
+      "result": {
+        "answer": {
+          "questions": [],
+          "claims": [],
+          "critiques": [],
+          "unresolved": [],
+          "resolved": [],
+          "summary": "# 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리\n\n> MOCK 시뮬레이션 보고서 — 실제 연구 결과가 아닙니다.\n\n## 연구 개요\n두 모델이 독립 조사, 상호비판, 반박 및 추가 조사를 수행했습니다.\n\n## 확인된 사실\n이 모드에서 검증된 외부 사실은 없습니다.\n\n## 잠정 결론\n적용 범위, 성공 지표, 비교 대상과 실패 조건을 명시한 실증 연구가 필요합니다.\n\n## 논쟁 및 미해결 질문\n공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?\n\n## 연구·정책 공백\n정량적인 검증 자료와 책임 범위의 명확화가 필요합니다.\n\n## 제안과 반론\n작은 규모의 시범 평가를 제안합니다. 실제 환경의 대표성이 부족할 수 있다는 반론이 남습니다.\n\n## 다음 단계\n실제 API와 웹 검색을 연결하여 원문 근거를 수집하고 사람이 검토하세요."
+        },
+        "observedUrls": [],
+        "tokens": 0,
+        "model": "mock-gpt"
+      },
+      "finishedAt": "2026-09-12T08:17:23.337Z"
+    }
+  ],
+  "rounds": [
+    {
+      "number": 1,
+      "questions": [
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+      ],
+      "requeued": [
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다."
+      ],
+      "newItems": 4,
+      "novelty": 1
+    },
+    {
+      "number": 2,
+      "questions": [
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다."
+      ],
+      "requeued": [
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다."
+      ],
+      "newItems": 1,
+      "novelty": 0.2
+    },
+    {
+      "number": 3,
+      "questions": [
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다."
+      ],
+      "requeued": [
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다."
+      ],
+      "newItems": 0,
+      "novelty": 0
+    },
+    {
+      "number": 4,
+      "questions": [
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다."
+      ],
+      "requeued": [
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+        "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+        "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다."
+      ],
+      "newItems": 0,
+      "novelty": 0
+    }
+  ],
+  "claims": [
+    {
+      "id": "C-f445e276",
+      "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+      "confidence": 0.6,
+      "actors": [
+        "GPT"
+      ],
+      "sources": [
+        {
+          "title": "시뮬레이션 근거 — 실제 자료 아님",
+          "url": "https://example.com/mock/gpt",
+          "excerpt": "흐름 검증을 위한 합성 예시입니다.",
+          "provenance": "mock"
+        }
+      ],
+      "status": "contested",
+      "objections": [
+        "방향 제시는 타당하지만 실제 효과를 뒷받침할 실증 근거가 부족하다."
+      ],
+      "rounds": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "id": "C-074440aa",
+      "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+      "confidence": 0.6,
+      "actors": [
+        "Claude"
+      ],
+      "sources": [
+        {
+          "title": "시뮬레이션 근거 — 실제 자료 아님",
+          "url": "https://example.com/mock/claude",
+          "excerpt": "흐름 검증을 위한 합성 예시입니다.",
+          "provenance": "mock"
+        }
+      ],
+      "status": "contested",
+      "objections": [
+        "방향 제시는 타당하지만 실제 효과를 뒷받침할 실증 근거가 부족하다."
+      ],
+      "rounds": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "id": "C-7cbb6eb6",
+      "statement": "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다.",
+      "confidence": 0.4,
+      "actors": [
+        "GPT",
+        "Claude"
+      ],
+      "sources": [],
+      "status": "needs-evidence",
+      "objections": [],
+      "rounds": [
+        2,
+        3,
+        4
+      ]
+    }
+  ],
+  "questions": [
+    "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+    "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+    "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?"
+  ],
+  "unresolved": [
+    "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?",
+    "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?",
+    "공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?",
+    "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.",
+    "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.",
+    "근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다."
+  ],
+  "tokens": 0,
+  "stopReason": "두 라운드 연속 새 정보 비율이 기준 이하",
+  "report": "# 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리\n\n> MOCK 시뮬레이션 보고서 — 실제 연구 결과가 아닙니다.\n\n## 연구 개요\n두 모델이 독립 조사, 상호비판, 반박 및 추가 조사를 수행했습니다.\n\n## 확인된 사실\n이 모드에서 검증된 외부 사실은 없습니다.\n\n## 잠정 결론\n적용 범위, 성공 지표, 비교 대상과 실패 조건을 명시한 실증 연구가 필요합니다.\n\n## 논쟁 및 미해결 질문\n공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?\n\n## 연구·정책 공백\n정량적인 검증 자료와 책임 범위의 명확화가 필요합니다.\n\n## 제안과 반론\n작은 규모의 시범 평가를 제안합니다. 실제 환경의 대표성이 부족할 수 있다는 반론이 남습니다.\n\n## 다음 단계\n실제 API와 웹 검색을 연결하여 원문 근거를 수집하고 사람이 검토하세요.\n\n---\n\n## 실행 기록\n- 모드: mock\n- 종료: 두 라운드 연속 새 정보 비율이 기준 이하\n- 라운드: 4\n- 미해결 질문: 6\n\n- 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 핵심 개념과 적용 범위는 무엇인가?\n- 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 기존 접근법의 근거와 한계는 무엇인가?\n- 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실제 환경에서 효과를 검증할 지표와 실증 자료가 충분한가?\n- 근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 적용 범위와 성공 지표를 먼저 정의해야 한다.\n- 근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 대안 비교와 실패 조건을 함께 평가해야 한다.\n- 근거 검토: 공공 Multi-Agent 환경의 정보보호 정책과 권한 관리: 실증 평가 전에는 효과를 단정할 수 없다."
+}

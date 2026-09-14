@@ -1,0 +1,171 @@
+import { randomUUID } from "node:crypto";
+import { messageSchema, type Actor, type MessageInput, type Project, type Provider, type Result, type Stage } from "./types";
+import { provider } from "./provider";
+import { save } from "./store";
+
+const now = () => new Date().toISOString();
+
+export function enqueueMessage(p: Project, raw: MessageInput) {
+  const input = messageSchema.parse(raw);
+  p.conversation ??= {
+    id: randomUUID(),
+    createdAt: p.createdAt,
+    memory: "",
+    turns: [],
+  };
+  const turn: Project["conversation"]["turns"][number] = {
+    id: randomUUID(),
+    target: input.target,
+    userText: input.message,
+    status: "queued",
+    attempts: 0,
+    createdAt: now(),
+    updatedAt: now(),
+    responses: {},
+  };
+  p.conversation.turns.push(turn);
+  return turn;
+}
+
+export function buildConversationContext(p: Project, turnId: string) {
+  const turns = p.conversation?.turns ?? [];
+  const current = turns.find((turn) => turn.id === turnId);
+  return {
+    projectReport: (p.report ?? "보고서 없음").slice(0, 16000),
+    claimLedger: p.claims.slice(0, 40).map((claim) => ({
+      id: claim.id,
+      statement: claim.statement,
+      confidence: claim.confidence,
+      status: claim.status,
+    })),
+    unresolvedQuestions: p.unresolved.slice(0, 20),
+    rollingMemory: (p.conversation?.memory ?? "").slice(-12000),
+    recentConversation: turns
+      .filter((turn) => turn.id !== turnId && turn.status === "complete")
+      .slice(-6)
+      .map((turn) => ({
+        target: turn.target,
+        user: turn.userText.slice(0, 4000),
+        assistant: (turn.answer ?? "").slice(0, 8000),
+      })),
+    currentMessage: current?.userText ?? "",
+    continuity:
+      "This is a continuation of one locally persisted project conversation. Reference text and attachment bodies were supplied during the initial research and are intentionally not repeated here.",
+  };
+}
+
+function refreshMemory(p: Project) {
+  p.conversation.memory = p.conversation.turns
+    .filter((turn) => turn.status === "complete")
+    .slice(-6)
+    .map(
+      (turn) =>
+        `사용자(${turn.target}): ${turn.userText.slice(0, 2000)}\n답변: ${(turn.answer ?? "").slice(0, 5000)}`,
+    )
+    .join("\n\n")
+    .slice(-12000);
+}
+
+export async function runConversation(
+  p: Project,
+  turnId: string,
+  callProvider: Provider = provider,
+  persist: (p: Project) => void = save,
+) {
+  const turn = p.conversation?.turns.find((item) => item.id === turnId);
+  if (!turn || turn.status !== "queued") return p;
+  const activeTurn = turn;
+  const record = () => {
+    activeTurn.updatedAt = now();
+    persist(p);
+  };
+  turn.status = "running";
+  turn.attempts += 1;
+  turn.error = undefined;
+  p.stage = "후속 대화 응답 중";
+  record();
+
+  async function call(actor: Actor, stage: Stage, context: unknown): Promise<Result> {
+    const entry: Project["calls"][number] = {
+      actor,
+      stage,
+      round: p.rounds.length,
+      status: "running",
+      startedAt: now(),
+    };
+    p.calls.push(entry);
+    record();
+    try {
+      const result = await callProvider({
+        actor,
+        stage,
+        round: p.rounds.length,
+        topic: p.topic,
+        questions: [activeTurn.userText],
+        context,
+        mode: p.mode,
+        projectId: p.id,
+        sessionId: p.providerSessions?.[actor],
+      });
+      if (result.sessionId) {
+        p.providerSessions ??= {};
+        p.providerSessions[actor] = result.sessionId;
+      }
+      entry.result = result;
+      entry.status = "complete";
+      p.tokens += result.tokens;
+      return result;
+    } catch (error) {
+      entry.status = "failed";
+      entry.error = error instanceof Error ? error.message : "후속 대화 호출 실패";
+      throw error;
+    } finally {
+      entry.finishedAt = now();
+      record();
+    }
+  }
+
+  try {
+    const actors: Actor[] =
+      turn.target === "both" ? ["GPT", "Claude"] : [turn.target];
+    const missing = actors.filter((actor) => !turn.responses[actor]);
+    const context = buildConversationContext(p, turn.id);
+    const settled = await Promise.allSettled(
+      missing.map(async (actor) => {
+        const result = await call(actor, "conversation", context);
+        turn.responses[actor] = result;
+      }),
+    );
+    const failure = settled.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failure) throw failure.reason;
+
+    if (turn.target === "both") {
+      if (!turn.synthesis) {
+        p.stage = "두 모델 답변 공동 정리 중";
+        record();
+        turn.synthesis = await call("GPT", "conversation-synthesis", {
+          ...buildConversationContext(p, turn.id),
+          drafts: {
+            GPT: turn.responses.GPT?.answer,
+            Claude: turn.responses.Claude?.answer,
+          },
+        });
+      }
+      turn.answer = turn.synthesis.answer.summary;
+    } else {
+      turn.answer = turn.responses[turn.target]?.answer.summary;
+    }
+    if (!turn.answer?.trim()) throw new Error("후속 대화 답변이 비어 있습니다.");
+    turn.status = "complete";
+    refreshMemory(p);
+    p.stage = "연구 완료 · 대화 가능";
+  } catch (error) {
+    turn.status = "failed";
+    turn.error = error instanceof Error ? error.message : "후속 대화 실행 실패";
+    p.stage = "대화 응답 오류 · 재시도 가능";
+  }
+  record();
+  return p;
+}
