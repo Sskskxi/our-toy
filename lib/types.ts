@@ -69,6 +69,7 @@ export type Stage =
   | "rebuttal"
   | "contradictions"
   | "synthesis"
+  | "report-edit"
   | "conversation"
   | "conversation-synthesis";
 /** Stages allowed to use web search when ENABLE_WEB_SEARCH is on. */
@@ -227,6 +228,8 @@ export type Project = Omit<Input, "mode" | "strategy"> & {
   unresolved: string[];
   stopReason?: string;
   report?: string;
+  /** Earlier reports replaced by "보고서 다시 쓰기", newest last (max 5). */
+  reportHistory?: { createdAt: string; markdown: string }[];
   error?: string;
   tokens: number;
   providerSessions: Partial<Record<Actor, string>>;

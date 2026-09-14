@@ -88,3 +88,82 @@ test("reports export to a Word file with headings, bullets and references", asyn
   assert.equal(buffer.subarray(0, 2).toString(), "PK", "a .docx is a zip file");
   assert.ok(buffer.length > 2000);
 });
+
+test("answer-first report rules flag a buried conclusion and pass a decision report", async () => {
+  const { reportProblems } = await import("../lib/engine");
+  const { REPORT_RULES, DECISION_RULES } = await import("../lib/provider");
+  assert.match(REPORT_RULES, /\*\*결론\*\*/);
+  assert.match(REPORT_RULES, /## 바로 할 일/);
+  assert.match(DECISION_RULES, /decision/);
+  const buried = "### 핵심 요점\n- **조건 확인됨**: 팀 2~7인, 마감 10월 11일 (C-1527c0f2, C-27d61677, C-d6c81584)\n- **추천 주제는 A**: 표준 필드 조합 (C-a2d49298)\n\n### 1. 근거로 뒷받침되는 사실\n확인이 필요합니다. 미확인. 불확실합니다. 단정할 수 없습니다. 검토가 필요합니다.";
+  const found = reportProblems(buried);
+  assert.ok(found.some((m) => m.includes("**결론**")));
+  assert.ok(found.some((m) => m.includes("## 결론")));
+  assert.ok(found.some((m) => m.includes("바로 할 일")));
+  assert.ok(found.some((m) => m.includes("주장 ID")));
+  assert.ok(found.some((m) => m.includes("유보 표현")));
+  const p = create(input);
+  await run(p, mock, () => save(p));
+  assert.deepEqual(reportProblems(p.report!), [], "the mock report follows the rules, so no edit call runs");
+  assert.ok(!p.calls.some((c) => c.stage === "report-edit"));
+});
+
+test("a report that buries the answer is edited by the other model and kept only if it is better", async () => {
+  const bad = "### 핵심 요점\n- **사실 정리**: 여러 조건이 있어요.\n\n## 사실\n내용";
+  const seen: Request[] = [];
+  const provider = (editReply: (r: Request) => string) => async (r: Request) => {
+    seen.push(r);
+    const result = await mock(r);
+    if (r.stage === "synthesis") result.answer.summary = bad;
+    if (r.stage === "report-edit") result.answer.summary = editReply(r);
+    return result;
+  };
+  const good = await mock({ ...seen[0], actor: "GPT", stage: "synthesis", round: 1, questions: [], topic: "공모전 주제" } as Request);
+  const p = create(input);
+  await run(p, provider(() => good.answer.summary), () => save(p));
+  const edit = seen.find((r) => r.stage === "report-edit")!;
+  assert.ok(edit, "edit call ran");
+  const synth = seen.find((r) => r.stage === "synthesis")!;
+  assert.notEqual(edit.actor, synth.actor, "the other model edits");
+  assert.match(JSON.stringify(edit), /problems/);
+  assert.match(p.report!, /\*\*결론\*\*: /);
+  assert.match(p.report!, /## 참고문헌|## 실행 기록/);
+
+  seen.length = 0;
+  const q = create(input);
+  await run(q, provider(() => "짧은 글"), () => save(q));
+  assert.ok(q.report!.startsWith(bad), "a worse edit is discarded");
+
+  seen.length = 0;
+  const failing = create(input);
+  await run(failing, async (r) => { if (r.stage === "report-edit") throw new Error("boom"); return provider(() => "")(r); }, () => save(failing));
+  assert.equal(failing.status, "complete", "a failed edit keeps the draft report");
+
+  process.env.REPORT_EDIT = "off";
+  try {
+    seen.length = 0;
+    const off = create(input);
+    await run(off, provider(() => good.answer.summary), () => save(off));
+    assert.ok(!seen.some((r) => r.stage === "report-edit"));
+  } finally {
+    delete process.env.REPORT_EDIT;
+  }
+});
+
+test("rewriting a finished report replays research and calls only the report stages", async () => {
+  const p = create(input);
+  await run(p, mock, () => save(p));
+  const researchCalls = p.calls.filter((c) => c.stage !== "synthesis").length;
+  // Same steps as POST /api/projects/[id]/rewrite.
+  p.reportHistory = [{ createdAt: p.updatedAt, markdown: p.report! }];
+  p.calls = p.calls.filter((c) => c.stage !== "synthesis" && c.stage !== "report-edit");
+  p.report = undefined;
+  p.status = "queued";
+  const live: Request[] = [];
+  await run(p, async (r) => { live.push(r); return mock(r); }, () => save(p));
+  assert.equal(p.status, "complete");
+  assert.deepEqual(live.map((r) => r.stage), ["synthesis"]);
+  assert.equal(p.calls.filter((c) => c.replayed).length, researchCalls);
+  assert.equal(p.reportHistory.length, 1);
+  assert.ok(p.report);
+});

@@ -139,6 +139,7 @@ const CAPPED_STAGES: Stage[] = [
   "conversation",
   "conversation-synthesis",
   "contradictions",
+  "report-edit",
 ];
 export function effortFor(
   stage: Stage,
@@ -425,8 +426,28 @@ export async function run(
     );
     if (!report.answer.summary.trim())
       throw new Error("최종 보고서가 비어 있습니다.");
+    let body = report.answer.summary;
+    // Final harness: a report that buries the answer goes to the other model
+    // as editor, and the edit is kept only if it breaks fewer rules.
+    const problems = reportProblems(body);
+    if (problems.length && process.env.REPORT_EDIT !== "off") {
+      const editor: Actor = final.synthesizer === "GPT" ? "Claude" : "GPT";
+      checkpoint("report-edit", p.rounds.length, "보고서 결론 다듬기", [editor]);
+      try {
+        const edited = await call(editor, "report-edit", p.rounds.length, p.questions, {
+          report: body,
+          problems,
+          reportTemplate: p.reportTemplate ?? "default",
+        });
+        const text = edited.answer.summary.trim();
+        if (text && reportProblems(text).length < problems.length) body = text;
+      } catch (error) {
+        // The draft report is still usable; only cancellation and budget stop the run.
+        if (error instanceof CancelledError || error instanceof BudgetExceeded) throw error;
+      }
+    }
     p.report =
-      report.answer.summary +
+      body +
       `\n\n---\n\n## 실행 기록\n- 모드: ${p.mode}\n- 협업 방식: ${p.strategy === "codraft" ? "공동 초안" : p.strategy === "relay" ? "탐색 릴레이" : "토론"}\n- 종료: ${p.stopReason}\n- 라운드: ${p.rounds.length}\n- 미해결 질문: ${p.unresolved.length}\n\n` +
       p.unresolved.map((q) => `- ${q}`).join("\n") +
       referencesAppendix(p);
@@ -883,4 +904,30 @@ export function referencesAppendix(p: Project) {
     return `${i + 1}. ${s.title || url} — <${url}>${tags ? ` (${tags})` : ""}`;
   });
   return `\n\n## 참고문헌\n${lines.join("\n")}`;
+}
+
+const HEDGES = /(필요합니다|필요해요|확인하지 못|미확인|불확실|단정할 수 없|어렵습니다|어려워요|검토가 필요)/g;
+
+/** Where a report breaks the answer-first rules; empty when it reads as a decision. */
+export function reportProblems(markdown: string) {
+  const problems: string[] = [];
+  const text = markdown.replace(/\r\n?/g, "\n");
+  const keyBlock = text.match(/###\s*핵심 요점\s*\n([\s\S]*?)(?=\n#{2,3}\s|$)/)?.[1] ?? "";
+  const firstBullet = keyBlock.split("\n").find((l) => /^\s*[-*]\s+/.test(l)) ?? "";
+  if (!/^\s*[-*]\s+\*\*결론\*\*\s*:/.test(firstBullet))
+    problems.push("'### 핵심 요점'의 첫 항목이 '**결론**: 직접적인 답'이 아니에요.");
+  if (/(검토가 필요|추가 확인이 필요|판단하기 어렵)/.test(firstBullet))
+    problems.push("결론이 권고가 아니라 보류 표현이에요.");
+  if (!/^##\s*결론/m.test(text)) problems.push("'## 결론' 섹션이 없어요.");
+  if (!/^##\s*바로 할 일/m.test(text)) problems.push("'## 바로 할 일' 섹션이 없어요.");
+  const evidenceAt = text.search(/^##\s*근거/m);
+  const top = evidenceAt < 0 ? text : text.slice(0, evidenceAt);
+  const ids = top.match(/C-[0-9a-f]{8}/g)?.length ?? 0;
+  if (ids > 2) problems.push(`결론·할 일 부분에 주장 ID가 ${ids}개 있어 읽기 어려워요. ID는 '## 근거'로 옮기세요.`);
+  const hedges = top.match(HEDGES)?.length ?? 0;
+  if (hedges > 4) problems.push(`결론·할 일 부분에 유보 표현이 ${hedges}번 나와요. 확신도는 한 번만 말하세요.`);
+  const pending = text.match(/^##\s*확인이 더 필요한 것\s*\n([\s\S]*?)(?=\n##\s|$)/m)?.[1] ?? "";
+  const pendingItems = pending.split("\n").filter((l) => /^\s*([-*]|\d+\.)\s+/.test(l)).length;
+  if (pendingItems > 5) problems.push(`'## 확인이 더 필요한 것'이 ${pendingItems}개예요. 결론에 영향을 주는 5개 이하로 줄이세요.`);
+  return problems;
 }
