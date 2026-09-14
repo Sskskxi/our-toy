@@ -448,9 +448,13 @@ export async function run(
     }
     p.report =
       body +
-      `\n\n---\n\n## 실행 기록\n- 모드: ${p.mode}\n- 협업 방식: ${p.strategy === "codraft" ? "공동 초안" : p.strategy === "relay" ? "탐색 릴레이" : "토론"}\n- 종료: ${p.stopReason}\n- 라운드: ${p.rounds.length}\n- 미해결 질문: ${p.unresolved.length}\n\n` +
-      p.unresolved.map((q) => `- ${q}`).join("\n") +
-      referencesAppendix(p);
+      `\n\n---\n\n## 실행 기록\n- 모드: ${p.mode}\n- 협업 방식: ${p.strategy === "codraft" ? "공동 초안" : p.strategy === "relay" ? "탐색 릴레이" : "토론"}\n- 종료: ${p.stopReason}\n- 라운드: ${p.rounds.length}\n- 미해결 질문: ${p.unresolved.length}` +
+      // An answer-first report already lists what matters in 확인이 더 필요한 것;
+      // the raw research notes stay in the questions tab instead of trailing it.
+      (/^##\s*확인이 더 필요한 것/m.test(body)
+        ? " (연구 질문 탭에서 볼 수 있어요)"
+        : `\n\n${p.unresolved.map((q) => `- ${q}`).join("\n")}`) +
+      referencesAppendix(p, body);
     p.status = "complete";
     p.stage = "연구 완료";
     p.autoResume = undefined;
@@ -890,20 +894,35 @@ const CHECK_LABEL: Record<string, string> = {
 };
 const GRADE_LABEL = { 1: "1차 자료", 2: "기관 자료", 3: "기타 자료" } as const;
 
-/** Numbered references with grade and check status, appended to the report. */
-export function referencesAppendix(p: Project) {
-  const seen = new Map<string, { title: string; grade?: 1 | 2 | 3; check?: string }>();
-  for (const claim of p.claims)
-    for (const s of claim.sources)
-      if (!seen.has(s.url)) seen.set(s.url, { title: s.title, grade: s.grade, check: s.check?.status });
+/**
+ * Numbered references with grade and check status, appended to the report.
+ * Only sources the report uses (by URL or by a cited claim ID) are listed, in
+ * order of first use; the rest stay in the ledger. A report that cites nothing
+ * lists every ledger source.
+ */
+export function referencesAppendix(p: Project, body = "") {
+  const seen = new Map<string, { title: string; grade?: 1 | 2 | 3; check?: string; at: number }>();
+  for (const claim of p.claims) {
+    const claimAt = body.indexOf(claim.id);
+    for (const s of claim.sources) {
+      const urlAt = body.indexOf(s.url);
+      const at = [urlAt, claimAt].filter((i) => i >= 0).reduce((a, b) => Math.min(a, b), Infinity);
+      const prev = seen.get(s.url);
+      if (!prev || at < prev.at) seen.set(s.url, { title: s.title, grade: s.grade, check: s.check?.status, at });
+    }
+  }
   if (!seen.size) return "";
-  const lines = [...seen.entries()].map(([url, s], i) => {
+  const used = [...seen.entries()].filter(([, s]) => s.at !== Infinity).sort((a, b) => a[1].at - b[1].at);
+  const listed = used.length ? used : [...seen.entries()];
+  const rest = seen.size - listed.length;
+  const lines = listed.map(([url, s], i) => {
     const tags = [s.grade ? GRADE_LABEL[s.grade] : "", s.check ? CHECK_LABEL[s.check] : ""]
       .filter(Boolean)
       .join(" · ");
     return `${i + 1}. ${s.title || url} — <${url}>${tags ? ` (${tags})` : ""}`;
   });
-  return `\n\n## 참고문헌\n${lines.join("\n")}`;
+  const note = rest ? `\n\n보고서에 쓰지 않은 출처 ${rest}개는 주장·근거 탭에 있어요.` : "";
+  return `\n\n## 참고문헌\n${lines.join("\n")}${note}`;
 }
 
 const HEDGES = /(필요합니다|필요해요|확인하지 못|미확인|불확실|단정할 수 없|어렵습니다|어려워요|검토가 필요)/g;
@@ -918,6 +937,10 @@ export function reportProblems(markdown: string) {
     problems.push("'### 핵심 요점'의 첫 항목이 '**결론**: 직접적인 답'이 아니에요.");
   if (/(검토가 필요|추가 확인이 필요|판단하기 어렵)/.test(firstBullet))
     problems.push("결론이 권고가 아니라 보류 표현이에요.");
+  const bullets = keyBlock.split("\n").filter((l) => /^\s*[-*]\s+/.test(l));
+  if (bullets.length > 5) problems.push(`'### 핵심 요점'이 ${bullets.length}개예요. 결론·이유 2~3개·위험 1개로 줄이세요.`);
+  const longest = Math.max(0, ...bullets.map((l) => l.replace(/\*\*/g, "").trim().length));
+  if (longest > 170) problems.push(`핵심 요점 한 항목이 ${longest}자예요. 170자 안으로 줄이고 세부는 아래로 옮기세요.`);
   if (!/^##\s*결론/m.test(text)) problems.push("'## 결론' 섹션이 없어요.");
   if (!/^##\s*바로 할 일/m.test(text)) problems.push("'## 바로 할 일' 섹션이 없어요.");
   const evidenceAt = text.search(/^##\s*근거/m);

@@ -167,3 +167,23 @@ test("rewriting a finished report replays research and calls only the report sta
   assert.equal(p.reportHistory.length, 1);
   assert.ok(p.report);
 });
+
+test("references list only the sources the report uses, in order of use", async () => {
+  const { referencesAppendix, reportProblems } = await import("../lib/engine");
+  const src = (url: string) => ({ url, title: url, excerpt: "", provenance: "provider-cited" as const, grade: 1 as const });
+  const p = create(input);
+  p.claims = [
+    { id: "C-aaaaaaaa", statement: "a", confidence: 0.5, actors: ["GPT"], sources: [src("https://a.go.kr/")], status: "source-linked", objections: [], rounds: [1] },
+    { id: "C-bbbbbbbb", statement: "b", confidence: 0.5, actors: ["GPT"], sources: [src("https://b.go.kr/")], status: "source-linked", objections: [], rounds: [1] },
+    { id: "C-cccccccc", statement: "c", confidence: 0.5, actors: ["GPT"], sources: [src("https://unused.go.kr/")], status: "source-linked", objections: [], rounds: [1] },
+  ];
+  const refs = referencesAppendix(p, "## 근거\n- B 사실 (https://b.go.kr/)\n- A 사실 (C-aaaaaaaa)");
+  assert.match(refs, /1\. https:\/\/b\.go\.kr\/[\s\S]*2\. https:\/\/a\.go\.kr\//);
+  assert.doesNotMatch(refs, /unused/);
+  assert.match(refs, /쓰지 않은 출처 1개/);
+  assert.match(referencesAppendix(p, "인용 없음"), /unused/, "a report without citations lists everything");
+  const long = "### 핵심 요점\n- **결론**: " + "가".repeat(200) + "\n- a\n- b\n- c\n- d\n- e\n\n## 결론: x\n## 바로 할 일\n1. y";
+  const found = reportProblems(long);
+  assert.ok(found.some((m) => m.includes("6개")));
+  assert.ok(found.some((m) => m.includes("170자")));
+});
