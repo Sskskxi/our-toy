@@ -14,6 +14,39 @@ const resultFile = path.join(dataDir, ".update-result.json");
 fs.mkdirSync(dataDir, { recursive: true });
 fs.rmSync(requestFile, { force: true });
 
+// `start` serves the production build. Rebuild first when there is no build or
+// any source file is newer than it, so a stale build is never served.
+function newestSourceMtime(dir) {
+  let newest = 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) newest = Math.max(newest, newestSourceMtime(full));
+    else newest = Math.max(newest, fs.statSync(full).mtimeMs);
+  }
+  return newest;
+}
+function ensureBuild() {
+  if (mode !== "start") return;
+  const buildId = path.join(".next", "BUILD_ID");
+  const built = fs.existsSync(buildId) ? fs.statSync(buildId).mtimeMs : 0;
+  const sources = Math.max(
+    ...["app", "lib"].map(newestSourceMtime),
+    ...["package.json", "package-lock.json", "tsconfig.json"].map((f) =>
+      fs.existsSync(f) ? fs.statSync(f).mtimeMs : 0,
+    ),
+  );
+  if (built >= sources) return;
+  console.log("[launch] 소스가 빌드보다 새로워 프로덕션 빌드를 만듭니다…");
+  const r = spawnSync("npm", ["run", "build"], {
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+  if (r.status !== 0) {
+    console.error("[launch] 빌드 실패. `npm run build` 로그를 확인하세요.");
+    process.exit(1);
+  }
+}
+
 let children = [];
 let stopping = false;
 let updating = false;
@@ -118,6 +151,7 @@ async function applyUpdate() {
   if (!stopping) start();
 }
 
+ensureBuild();
 start();
 setInterval(() => {
   if (!updating && !stopping && fs.existsSync(requestFile)) void applyUpdate();

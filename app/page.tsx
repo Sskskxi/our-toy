@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ModelChoices, Project } from "@/lib/types";
 import {
   DebateThread,
@@ -28,7 +28,7 @@ import type {
 type Brief = Pick<
   Project,
   "id" | "topic" | "status" | "mode" | "createdAt" | "stage"
->;
+> & { busy?: boolean };
 const labels: Record<string, string> = {
   queued: "대기 중",
   running: "연구 중",
@@ -111,7 +111,7 @@ function ProviderLimits({
 }
 
 export default function Page() {
-  const [projects, setProjects] = useState<Brief[]>([]),
+  const [projects, setProjectsState] = useState<Brief[]>([]),
     [id, setId] = useState(""),
     [project, setProject] = useState<Project | null>(null);
   const [topic, setTopic] = useState(""),
@@ -193,6 +193,13 @@ export default function Page() {
     }
   }
   const [tab, setTab] = useState("overview");
+  const projectsRef = useRef<Brief[]>([]);
+  const setProjects = (next: Brief[] | ((prev: Brief[]) => Brief[])) =>
+    setProjectsState((prev) => {
+      const value = typeof next === "function" ? next(prev) : next;
+      projectsRef.current = value;
+      return value;
+    });
   const [restored, setRestored] = useState(false);
   // Reopen the last project/tab and unsent drafts after a reload or restart.
   useEffect(() => {
@@ -284,11 +291,26 @@ export default function Page() {
         if (alive) setError(String(e));
       }
     }
-    void refresh();
-    const timer = setInterval(refresh, 2000);
+    // Poll often only while something is running and the tab is visible.
+    let timer: ReturnType<typeof setTimeout>;
+    const loop = async () => {
+      await refresh();
+      if (!alive) return;
+      const busyNow = projectsRef.current.some((p) => p.busy);
+      timer = setTimeout(loop, document.hidden ? 15000 : busyNow ? 3000 : 10000);
+    };
+    void loop();
+    const wake = () => {
+      if (!document.hidden) {
+        clearTimeout(timer);
+        void loop();
+      }
+    };
+    document.addEventListener("visibilitychange", wake);
     return () => {
       alive = false;
-      clearInterval(timer);
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", wake);
     };
   }, []);
   useEffect(() => {
@@ -296,21 +318,48 @@ export default function Page() {
     let alive = true;
     setProject(null);
     setChatModels({});
+    let version = "";
+    let active = true;
     async function refresh() {
       try {
-        const res = await fetch(`/api/projects/${id}`);
+        const res = await fetch(`/api/projects/${id}?v=${encodeURIComponent(version)}`, {
+          cache: "no-store",
+        });
         if (!res.ok) throw Error("프로젝트를 읽지 못했습니다.");
         const p = await res.json();
-        if (alive) setProject(p);
+        if (!alive) return;
+        version = p.version ?? "";
+        // An unchanged project skips re-rendering the whole thread.
+        if (!p.unchanged) {
+          setProject(p);
+          active =
+            p.status === "running" ||
+            p.status === "queued" ||
+            (p.conversation?.turns ?? []).some(
+              (t: { status: string }) => t.status === "running" || t.status === "queued",
+            );
+        }
       } catch (e) {
         if (alive) setError(String(e));
       }
     }
-    void refresh();
-    const timer = setInterval(refresh, 1000);
+    let timer: ReturnType<typeof setTimeout>;
+    const loop = async () => {
+      await refresh();
+      if (alive) timer = setTimeout(loop, document.hidden ? 10000 : active ? 1500 : 6000);
+    };
+    void loop();
+    const wake = () => {
+      if (!document.hidden) {
+        clearTimeout(timer);
+        void loop();
+      }
+    };
+    document.addEventListener("visibilitychange", wake);
     return () => {
       alive = false;
-      clearInterval(timer);
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", wake);
     };
   }, [id]);
   async function submit(e: React.FormEvent) {

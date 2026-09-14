@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rejectUnsafe } from "@/lib/http";
-import { create, list } from "@/lib/store";
+import { briefs, create } from "@/lib/store";
 import { inputSchema } from "@/lib/types";
 import { modelDefaults } from "@/lib/subscription";
 export const runtime = "nodejs";
@@ -9,13 +9,14 @@ export async function GET(req: NextRequest) {
   const unsafe = rejectUnsafe(req, { json: false });
   if (unsafe) return unsafe;
   return NextResponse.json({
-    projects: list().map(({ id, topic, status, mode, createdAt, stage }) => ({
+    projects: briefs().map(({ id, topic, status, mode, createdAt, stage, queuedTurnAt }) => ({
       id,
       topic,
       status,
       mode,
       createdAt,
       stage,
+      busy: status === "running" || status === "queued" || Boolean(queuedTurnAt),
     })),
     defaultMode: process.env.RESEARCH_MODE === "mock" ? "mock" : "subscription",
     liveReady: true,

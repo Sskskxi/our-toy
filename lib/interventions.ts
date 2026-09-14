@@ -20,6 +20,15 @@ function inboxFile(id: string) {
   return path.join(dataDir(), id + ".inbox.json");
 }
 
+export function inboxVersion(id: string) {
+  try {
+    const st = fs.statSync(inboxFile(id));
+    return `${st.ino}-${st.mtimeMs}-${st.size}`;
+  } catch {
+    return "0";
+  }
+}
+
 export function readInbox(id: string): Intervention[] {
   const file = inboxFile(id);
   if (!fs.existsSync(file)) return [];

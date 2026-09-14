@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type {
@@ -37,7 +37,8 @@ const stageHints: Record<string, string> = {
   synthesis: "원장과 남은 질문을 모아 보고서를 씁니다.",
 };
 
-export function SafeMarkdown({
+// Markdown parsing is the heaviest render work; skip it when the text is unchanged.
+export const SafeMarkdown = memo(function SafeMarkdown({
   children,
   className = "md",
 }: {
@@ -62,7 +63,7 @@ export function SafeMarkdown({
       </Markdown>
     </div>
   );
-}
+});
 
 // Browser-only conveniences (drafts, last view). Research records themselves are
 // saved on the server in data/<id>.json; storage may be unavailable.
@@ -137,7 +138,7 @@ export function splitKeyPoints(md: string) {
   };
 }
 
-export function RichMarkdown({ children }: { children: string }) {
+export const RichMarkdown = memo(function RichMarkdown({ children }: { children: string }) {
   const { key, rest } = splitKeyPoints(children);
   return (
     <>
@@ -150,7 +151,7 @@ export function RichMarkdown({ children }: { children: string }) {
       {rest && <SafeMarkdown>{rest}</SafeMarkdown>}
     </>
   );
-}
+});
 
 /** Plain one-line title from a Markdown topic. */
 export function firstLine(md: string) {
@@ -407,7 +408,17 @@ function Confidence({ value }: { value: number }) {
   );
 }
 
-function Bubble({
+// Finished calls never change, so a bubble re-renders only when its call moves.
+const Bubble = memo(BubbleView, (a, b) =>
+  a.actor === b.actor &&
+  a.call?.status === b.call?.status &&
+  a.call?.startedAt === b.call?.startedAt &&
+  a.call?.finishedAt === b.call?.finishedAt &&
+  a.call?.replayed === b.call?.replayed &&
+  a.call?.error === b.call?.error,
+);
+
+function BubbleView({
   call,
   actor,
   onOpenReport,

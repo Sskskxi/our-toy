@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config({ path: ".env.local", quiet: true });
 dotenv.config({ quiet: true });
-const { dataDir, list, save } = await import("../lib/store");
+const { briefs, dataDir, get, list, save } = await import("../lib/store");
 const { stopSubscriptionCalls } = await import("../lib/subscription");
 const { run } = await import("../lib/engine");
 const { runConversation } = await import("../lib/conversation");
@@ -72,21 +72,17 @@ for (const p of list()) {
 }
 console.log("Research worker ready (one local worker, persistent queue)");
 while (true) {
-  const projects = list();
-  const next = [...projects]
-    .reverse()
-    .find((p) => p.status === "queued");
-  if (next) await run(next);
+  // Scan cheap briefs; load a full project only when there is work for it.
+  const projects = briefs();
+  const next = [...projects].reverse().find((p) => p.status === "queued");
+  const project = next && get(next.id);
+  if (project && project.status === "queued") await run(project);
   else {
-    const queuedTurn = projects
-      .flatMap((project) =>
-        (project.conversation?.turns ?? [])
-          .filter((turn) => turn.status === "queued")
-          .map((turn) => ({ project, turn })),
-      )
-      .sort((a, b) => a.turn.createdAt.localeCompare(b.turn.createdAt))[0];
-    if (queuedTurn)
-      await runConversation(queuedTurn.project, queuedTurn.turn.id);
+    const turn = projects
+      .filter((p) => p.queuedTurnAt)
+      .sort((a, b) => a.queuedTurnAt!.localeCompare(b.queuedTurnAt!))[0];
+    const withTurn = turn && get(turn.id);
+    if (withTurn && turn.queuedTurnId) await runConversation(withTurn, turn.queuedTurnId);
     else await new Promise((r) => setTimeout(r, 700));
   }
 }
