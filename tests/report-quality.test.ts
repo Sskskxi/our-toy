@@ -279,3 +279,30 @@ test("follow-up research builds on the earlier chat and keeps the chat call log"
   assert.ok(JSON.stringify(digest).length < 8000, "long answers are cut to the budget");
   assert.match(digest.at(-1)!.answer, /이하 생략/);
 });
+
+test("a stopped follow-up can take another question; both run before the new report", async () => {
+  const { startFollowUp } = await import("../lib/followup");
+  const p = create({ ...input, strategy: "codraft", maxRounds: 1, minRounds: 1 });
+  await run(p, mock, () => save(p));
+  assert.equal(startFollowUp(p, { question: "첫 후속", rounds: 2 }), null);
+  let revises = 0;
+  await run(p, async (r) => {
+    if (r.stage === "revise" && r.round === 3 && r.actor === "GPT") throw new Error("무관한 실패");
+    if (r.stage === "revise") revises++;
+    return mock(r);
+  }, () => save(p));
+  assert.equal(p.status, "failed");
+  assert.equal(startFollowUp(p, { question: "두 번째 후속", rounds: 1 }), null);
+  assert.equal(p.followUps?.at(-1)?.fromRound, 3, "new rounds come after the planned ones");
+  assert.equal(p.maxRounds, 4);
+  assert.equal(p.reportHistory?.length, 1, "no report to archive from the failed run");
+  const live: Request[] = [];
+  await run(p, async (r) => { live.push(r); return mock(r); }, () => save(p));
+  assert.equal(p.status, "complete", p.error);
+  assert.equal(p.rounds.length, 4);
+  const byRound = (n: number) => live.find((r) => r.stage === "revise" && r.round === n);
+  assert.equal((byRound(3)!.context as { followUp: { question: string } }).followUp.question, "첫 후속");
+  assert.equal((byRound(4)!.context as { followUp: { question: string } }).followUp.question, "두 번째 후속");
+  assert.match(JSON.stringify(live.find((r) => r.stage === "synthesis")!.context), /두 번째 후속[\s\S]*|첫 후속/);
+  assert.match(startFollowUp(create({ ...input }), { question: "x" }) ?? "", /보고서가 나온/, "a plain failed run still cannot");
+});

@@ -19,15 +19,20 @@ export function startFollowUp(p: Project, input: FollowUpInput): string | null {
   const rounds = input.rounds ?? 2;
   if (!Number.isInteger(rounds) || rounds < 1 || rounds > FOLLOW_UP_MAX_ROUNDS)
     return `추가 라운드는 1~${FOLLOW_UP_MAX_ROUNDS} 사이로 정해 주세요.`;
-  if (p.status !== "complete" || !p.report) return "보고서가 나온 연구에서만 후속 심층 조사를 할 수 있어요.";
+  // A follow-up whose run stopped (failed or interrupted) can take another
+  // question: its rounds are added after the rounds already planned.
+  const unfinished = (p.status === "failed" || p.status === "interrupted") && Boolean(p.followUps?.length);
+  if (!(p.status === "complete" && p.report) && !unfinished)
+    return "보고서가 나온 연구에서만 후속 심층 조사를 할 수 있어요.";
   if (p.mode === "live") return "직접 API 기록은 다시 실행할 수 없습니다.";
   if (p.conversation.turns.some((t) => t.status === "running" || t.status === "queued"))
     return "후속 대화 답변이 끝난 뒤 시작할 수 있어요.";
-  const fromRound = p.rounds.length;
+  const fromRound = unfinished ? Math.max(p.maxRounds, p.rounds.length) : p.rounds.length;
   if (fromRound + rounds > ROUND_LIMIT)
     return `라운드는 모두 ${ROUND_LIMIT}회까지예요. 지금 ${fromRound}회를 했어요.`;
   const now = new Date().toISOString();
-  p.reportHistory = [...(p.reportHistory ?? []), { createdAt: p.updatedAt, markdown: p.report }].slice(-5);
+  if (p.report)
+    p.reportHistory = [...(p.reportHistory ?? []), { createdAt: p.updatedAt, markdown: p.report }].slice(-5);
   p.followUps = [...(p.followUps ?? []), { id: randomUUID(), question, createdAt: now, fromRound, rounds }];
   // New rounds must run even if the saved rounds had converged; stop rules
   // may end the follow-up early only after its first round.
