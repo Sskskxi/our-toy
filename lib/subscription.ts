@@ -3,8 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
-import { CliFailure, classifyFailure, cliFailure, reportedErrors, sanitizeDetail, stageTimeout, effortTimeFactor } from "./cli-errors";
-import { answerSchema, modelsSchema, SEARCH_STAGES, type Request, type Result } from "./types";
+import { CliFailure, callLimits, classifyFailure, cliFailure, durationText, reportedErrors, sanitizeDetail, effortTimeFactor } from "./cli-errors";
+import { answerSchema, modelsSchema, SEARCH_STAGES, type CallProgress, type Request, type Result } from "./types";
 
 // Only OS runtime variables reach the official clients. Never inherit API keys,
 // provider overrides, OAuth tokens, project dotenv, or alternate auth directories.
@@ -39,12 +39,21 @@ function terminate(p: ReturnType<typeof spawn>) {
 export function stopSubscriptionCalls() {
   for (const p of children) terminate(p);
 }
+export type ExecuteOptions = {
+  /** Stop when the process writes nothing for this long (stuck, not slow). */
+  idleMs?: number;
+  /** Every chunk of stdout, for progress tracking. */
+  onOutput?: (chunk: string) => void;
+};
+
+/** `timeout` is the total limit; `idleMs` stops a call that went silent. */
 export function execute(
   command: string,
   args: string[],
   cwd: string,
   input = "",
   timeout = 180000,
+  options: ExecuteOptions = {},
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const p = spawn(command, args, {
@@ -59,23 +68,37 @@ export function execute(
       stderr = "",
       failure: CliFailure | undefined;
     const timer = setTimeout(() => {
-      failure = new CliFailure(command, "timeout", `${Math.round(timeout / 1000)}초 초과`);
+      failure ??= new CliFailure(command, "timeout", `전체 ${durationText(timeout)} 초과`);
       terminate(p);
     }, timeout);
+    let idle: NodeJS.Timeout | undefined;
+    const touch = () => {
+      if (!options.idleMs || options.idleMs >= timeout) return;
+      clearTimeout(idle);
+      idle = setTimeout(() => {
+        failure ??= new CliFailure(command, "timeout", `${durationText(options.idleMs!)} 동안 응답 없음`);
+        terminate(p);
+      }, options.idleMs);
+    };
+    touch();
     p.stdout.on("data", (d) => {
+      touch();
       stdout += d;
+      options.onOutput?.(String(d));
       if (stdout.length > 16_000_000) {
         failure = new CliFailure(command, "output", "출력이 16MB를 넘었습니다");
         terminate(p);
       }
     });
     p.stderr.on("data", (d) => {
+      touch();
       stderr = (stderr + d).slice(-20000);
     });
     p.stdin.on("error", () => {});
     p.stdin.end(input);
     p.on("error", () => {
       clearTimeout(timer);
+      clearTimeout(idle);
       children.delete(p);
       reject(
         new CliFailure(command, "cli", "공식 CLI를 찾지 못했습니다. 설치와 PATH를 확인하세요"),
@@ -83,6 +106,7 @@ export function execute(
     });
     p.on("close", (code) => {
       clearTimeout(timer);
+      clearTimeout(idle);
       children.delete(p);
       if (failure) reject(failure);
       else if (code !== 0) reject(cliFailure(command, stdout, stderr));
@@ -95,10 +119,49 @@ export function wireSchema() {
     ["format", "$schema"].includes(key) ? undefined : value,
   );
 }
+/** The final result event of `--output-format stream-json`, or a plain JSON result. */
+function claudeResultJson(raw: string) {
+  const lines = raw.trim().split("\n");
+  if (lines.length === 1) return JSON.parse(lines[0]);
+  for (const line of lines.reverse()) {
+    try {
+      const event = JSON.parse(line);
+      if (event?.type === "result") return event;
+    } catch {}
+  }
+  throw new Error("no result event");
+}
+
+/**
+ * Counts streamed CLI events and web searches, reporting at most every few
+ * seconds. Claude streams thinking and tool events; Codex prints JSONL events.
+ */
+export function progressTracker(onProgress?: (p: CallProgress) => void, everyMs = 5000) {
+  let buffer = "";
+  let sent = 0;
+  const progress: CallProgress = { events: 0, searches: 0, lastAt: new Date().toISOString() };
+  return (chunk: string) => {
+    if (!onProgress) return;
+    buffer += chunk;
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      progress.events++;
+      if (/"name":"Web(Search|Fetch)"|"type":"web_search/.test(line)) progress.searches++;
+    }
+    progress.lastAt = new Date().toISOString();
+    if (Date.now() - sent >= everyMs) {
+      sent = Date.now();
+      onProgress({ ...progress });
+    }
+  };
+}
+
 export function decodeClaude(raw: string, model: string): Result {
   let d;
   try {
-    d = JSON.parse(raw);
+    d = claudeResultJson(raw);
   } catch {
     throw new CliFailure("claude", "output", "JSON이 아닌 출력");
   }
@@ -224,8 +287,10 @@ export function buildClaudeArgs(options: {
     options.model,
     "--effort",
     options.effort,
+    // Streamed events show the call is alive during long thinking and searches.
     "--output-format",
-    "json",
+    "stream-json",
+    "--verbose",
     "--json-schema",
     options.schema,
     "--tools",
@@ -260,6 +325,8 @@ export async function subscription(
   // Each call is self-contained: the prompt carries the document, ledger and
   // recent turns, so resuming a CLI thread would only resend its whole history.
   const cwd = previousSession ? sessionWorkdir(r, dir) : dir;
+  const limits = callLimits(process.env, (r.timeoutScale ?? 1) * effortTimeFactor(effort));
+  const onOutput = progressTracker(r.onProgress);
   try {
     const schema = wireSchema();
     let result: Result;
@@ -275,13 +342,7 @@ export async function subscription(
         output,
         sessionId: previousSession,
       });
-      const raw = await execute(
-        "codex",
-        args,
-        cwd,
-        prompt,
-        stageTimeout(r.stage, process.env, (r.timeoutScale ?? 1) * effortTimeFactor(effort)),
-      );
+      const raw = await execute("codex", args, cwd, prompt, limits.maxMs, { idleMs: limits.idleMs, onOutput });
       const events = raw.split("\n").flatMap((line) => {
         try {
           return [JSON.parse(line)];
@@ -323,13 +384,7 @@ export async function subscription(
         resume: Boolean(previousSession),
       });
       result = decodeClaude(
-        await execute(
-          "claude",
-          args,
-          cwd,
-          prompt,
-          stageTimeout(r.stage, process.env, (r.timeoutScale ?? 1) * effortTimeFactor(effort)),
-        ),
+        await execute("claude", args, cwd, prompt, limits.maxMs, { idleMs: limits.idleMs, onOutput }),
         model,
       );
       result.sessionId = previousSession;

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Actor, Claim, DocumentVersion, Project, Provider, Result, Round, Stage } from "./types";
+import type { Actor, CallProgress, Claim, DocumentVersion, Project, Provider, Result, Round, Stage } from "./types";
 import { provider } from "./provider";
 import { save } from "./store";
 import { absorbInterventions, expireUndelivered, guidanceFor } from "./interventions";
@@ -333,9 +333,24 @@ export async function run(
         p.models?.[actor]?.effort ??
         (p.mode === "subscription" ? modelDefaults()[actor].effort : undefined);
       entry.effort = effortFor(stage, chosen);
+      let savedAt = 0;
+      const onProgress = (progress: CallProgress) => {
+        entry.progress = progress;
+        // Progress is for the UI; saving the whole project often would be wasteful.
+        if (Date.now() - savedAt >= 20_000) {
+          savedAt = Date.now();
+          record();
+        }
+      };
       const { result, effort: used } = await callAdaptive(
         (effort, attempt) =>
-          callProvider({ ...request, effort, timeoutScale: timeoutScaleFor(attempt) }),
+          callProvider(
+            // Non-enumerable: requests stay plain data for logging and cloning.
+            Object.defineProperty({ ...request, effort, timeoutScale: timeoutScaleFor(attempt) }, "onProgress", {
+              value: onProgress,
+              enumerable: false,
+            }),
+          ),
         entry.effort,
         (note) => {
           entry.error = note;
@@ -747,9 +762,10 @@ async function coDraftRounds({ p, call, pair, checkpoint, record }: EngineTools)
     p.rounds.push(rr);
     const turns: { actor: Actor; result: Result }[] = [];
     const roundStartText = document.markdown;
+    const skip = skipper(p, rr, order.length);
     for (const actor of order) {
       checkpoint("revise", round, `라운드 ${round} · ${actor} 수정 차례`, [actor]);
-      const result = await call(actor, "revise", round, questions, {
+      const result = await skip(actor, () => call(actor, "revise", round, questions, {
         document: document.markdown,
         documentVersion: document.version,
         lastEditor: document.author,
@@ -762,7 +778,8 @@ async function coDraftRounds({ p, call, pair, checkpoint, record }: EngineTools)
           status,
           actors,
         })),
-      });
+      }));
+      if (!result) continue;
       // Revisions return only changed sections; merge them by heading.
       const markdown = mergeSections(document.markdown, result.answer.summary);
       document = addVersion(p, actor, "revise", round, {
@@ -785,7 +802,8 @@ async function coDraftRounds({ p, call, pair, checkpoint, record }: EngineTools)
     );
     p.unresolved = unique(turns.at(-1)!.result.answer.unresolved);
     rr.requeued = [...p.unresolved];
-    const settled = turns.every((t) => editsOf(t.result).length === 0);
+    // A skipped turn is not agreement: the round cannot settle the document.
+    const settled = !rr.skipped?.length && turns.every((t) => editsOf(t.result).length === 0);
     const textChanged = document.markdown !== roundStartText;
     // Edits count as progress even without new ledger claims.
     lowNovelty =
@@ -846,9 +864,10 @@ async function relayRounds({ p, call, checkpoint, record }: EngineTools): Promis
     p.rounds.push(rr);
     const turns: { actor: Actor; result: Result }[] = [];
     let newItems = 0;
+    const skip = skipper(p, rr, order.length);
     for (const actor of order) {
       checkpoint("explore", round, `라운드 ${round} · ${actor} 탐색 차례`, [actor]);
-      const result = await call(actor, "explore", round, p.questions, {
+      const result = await skip(actor, () => call(actor, "explore", round, p.questions, {
         previousTurn: previous
           ? {
               actor: previous.actor,
@@ -858,7 +877,8 @@ async function relayRounds({ p, call, checkpoint, record }: EngineTools): Promis
             }
           : null,
         researchMap: researchMap(p),
-      });
+      }));
+      if (!result) continue;
       applyExclusions(p, actor, round, result);
       // Excluded material stays out even if a later turn finds it again.
       const excluded = new Set((p.exclusions ?? []).map((e) => normalize(e.target)));
@@ -883,7 +903,7 @@ async function relayRounds({ p, call, checkpoint, record }: EngineTools): Promis
     rr.novelty = Math.min(1, newItems / total);
     rr.requeued = [...p.unresolved];
     // Both legs proposing nothing left to deepen is the relay's own finish line.
-    const exhausted = turns.every((t) => t.result.answer.questions.length === 0);
+    const exhausted = !rr.skipped?.length && turns.every((t) => t.result.answer.questions.length === 0);
     lowNovelty = rr.novelty <= p.noveltyThreshold ? lowNovelty + 1 : 0;
     if (round >= minRoundsOf(p) && exhausted)
       p.stopReason =
@@ -997,4 +1017,24 @@ export function conversationDigest(p: Project, maxChars = 16000) {
     out.push({ asked, answer, at: t.createdAt });
   }
   return out.reverse();
+}
+
+/**
+ * Turn runner for alternating rounds: a turn that stalled even after its retry
+ * is skipped so one stuck model does not end hours of work; the other model
+ * keeps going and the skipped call runs again on resume. If every turn of the
+ * round stalls, the round fails as before.
+ */
+function skipper(p: Project, rr: Round, turnsPerRound: number) {
+  return async <T>(actor: Actor, run: () => Promise<T>): Promise<T | undefined> => {
+    try {
+      return await run();
+    } catch (error) {
+      if (!isTimeout(error) || isCancelRequested(p.id)) throw error;
+      rr.skipped = [...(rr.skipped ?? []), actor];
+      if (rr.skipped.length >= turnsPerRound) throw error;
+      p.stage = `라운드 ${rr.number} · ${actor} 차례가 응답하지 않아 건너뛰고 계속해요`;
+      return undefined;
+    }
+  };
 }

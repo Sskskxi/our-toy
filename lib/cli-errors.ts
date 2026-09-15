@@ -15,7 +15,7 @@ const HINTS: Record<FailureKind, string> = {
   auth: "로그인이 풀렸어요. 홈 화면 계정 카드에서 다시 로그인한 뒤 이어서 실행해 주세요.",
   model: "선택한 모델을 이 계정에서 쓸 수 없어요. 모델이나 추론 수준을 바꾼 뒤 이어서 실행해 주세요.",
   transient: "서비스 과부하나 네트워크 문제로 잠시 실패했어요.",
-  timeout: "응답 시간 제한을 넘었어요.",
+  timeout: "응답이 멈췄거나 시간 제한을 넘었어요.",
   cli: "CLI가 실행 옵션을 거부했어요. Codex/Claude Code를 최신 버전으로 업데이트한 뒤 이어서 실행해 주세요.",
   output: "모델 응답을 해석하지 못했어요. 이어서 실행하면 그 단계부터 다시 요청해요.",
   unknown: "CLI 실행이 실패했어요. 잠시 뒤 이어서 실행해 주세요.",
@@ -148,6 +148,33 @@ export function effortTimeFactor(effort?: string) {
 export function isTimeout(error: unknown) {
   if (error instanceof CliFailure) return error.kind === "timeout";
   return error instanceof Error && /시간 제한/.test(error.message);
+}
+
+/**
+ * How long one CLI call may run. A call is stopped when it goes silent for
+ * `idleMs` (no output at all: stuck), or runs past `maxMs` in total. Research
+ * turns with many searches can take over an hour while still streaming
+ * progress, so a fixed 10-15 minute limit killed healthy work (claude revise,
+ * 34 minutes of two attempts, "900초 초과").
+ * Env: CLI_IDLE_SECONDS (default 900), CLI_MAX_MINUTES (default 120),
+ * CLI_TIMEOUT_SECONDS (legacy total limit, wins over CLI_MAX_MINUTES).
+ */
+export function callLimits(env: Record<string, string | undefined> = process.env, scale = 1) {
+  const factor = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  const legacy = Number(env.CLI_TIMEOUT_SECONDS);
+  const minutes = Number(env.CLI_MAX_MINUTES);
+  const idle = Number(env.CLI_IDLE_SECONDS);
+  const maxMs =
+    Number.isFinite(legacy) && legacy >= 60
+      ? legacy * 1000
+      : (Number.isFinite(minutes) && minutes >= 5 ? minutes : 120) * 60_000;
+  const idleMs = (Number.isFinite(idle) && idle >= 60 ? idle : 900) * 1000;
+  return { maxMs: Math.round(maxMs * factor), idleMs: Math.min(idleMs, Math.round(maxMs * factor)) };
+}
+
+/** Short Korean duration for failure notes: "15분", "90초". */
+export function durationText(ms: number) {
+  return ms >= 60_000 ? `${Math.round(ms / 60_000)}분` : `${Math.round(ms / 1000)}초`;
 }
 
 /**

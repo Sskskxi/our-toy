@@ -156,7 +156,10 @@ export type Call = {
   replayed?: boolean;
   /** Reasoning effort actually used (after stage caps and volume downgrades). */
   effort?: string;
+  /** Live CLI activity while running: streamed events, searches, last output time. */
+  progress?: CallProgress;
 };
+export type CallProgress = { events: number; searches: number; lastAt: string };
 export type Exclusion = {
   target: string;
   reason: string;
@@ -180,6 +183,8 @@ export type Round = {
   novelty?: number;
   newItems?: number;
   requeued: string[];
+  /** Models whose turn stalled and was skipped this round (retried on resume). */
+  skipped?: Actor[];
 };
 export type ConversationTurn = {
   id: string;
@@ -273,5 +278,7 @@ export type Request = {
   effort?: string;
   /** Multiplier for the per-stage CLI time limit: 1 first try, 1.5 on retries. */
   timeoutScale?: number;
+  /** Called with live CLI activity; never sent to the model. */
+  onProgress?: (progress: CallProgress) => void;
 };
 export type Provider = (request: Request) => Promise<Result>;
