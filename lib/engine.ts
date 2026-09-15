@@ -968,6 +968,15 @@ export function referencesAppendix(p: Project, body = "") {
 
 const HEDGES = /(필요합니다|필요해요|확인하지 못|미확인|불확실|단정할 수 없|어렵습니다|어려워요|검토가 필요)/g;
 
+/** Body of a '## title…' section up to the next '## ' heading, or undefined. */
+function sectionOf(text: string, title: string) {
+  const at = text.search(new RegExp(`^##\\s*${title}`, "m"));
+  if (at < 0) return undefined;
+  const rest = text.slice(at).split("\n").slice(1).join("\n");
+  const end = rest.search(/^##\s/m);
+  return end < 0 ? rest : rest.slice(0, end);
+}
+
 /** Where a report breaks the answer-first rules; empty when it reads as a decision. */
 export function reportProblems(markdown: string) {
   const problems: string[] = [];
@@ -988,8 +997,25 @@ export function reportProblems(markdown: string) {
   if (longest > 170) problems.push(`핵심 요점 한 항목이 ${longest}자예요. 170자 안으로 줄이고 세부는 아래로 옮기세요.`);
   if (!/^##\s*결론/m.test(text)) problems.push("'## 결론' 섹션이 없어요.");
   if (!/^##\s*바로 할 일/m.test(text)) problems.push("'## 바로 할 일' 섹션이 없어요.");
+  // Claims need their support right under them: evidence, then what it means.
+  const why = sectionOf(text, "왜 이 결론인가");
+  if (why === undefined) problems.push("'## 왜 이 결론인가' 섹션이 없어요. 주장마다 근거와 '그래서'를 바로 아래에 붙이세요.");
+  else {
+    const blocks = why.split(/^###\s*주장/m).slice(1);
+    if (blocks.length < 2) problems.push(`주장 블록이 ${blocks.length}개예요. '### 주장 N:' 블록을 2~4개 쓰세요.`);
+    const noEvidence = blocks.filter((b) => !/\*\*근거\*\*\s*:[^\n]*\]\(https?:\/\//.test(b)).length;
+    if (noEvidence) problems.push(`출처 링크가 달린 '근거' 줄이 없는 주장이 ${noEvidence}개예요.`);
+    const noMeaning = blocks.filter((b) => !/\*\*그래서\*\*\s*:/.test(b)).length;
+    if (noMeaning) problems.push(`'그래서'(결정에 주는 의미) 줄이 없는 주장이 ${noMeaning}개예요.`);
+  }
+  const story = sectionOf(text, "사례로 보기");
+  if (story === undefined || (story.match(/^\s*\d+\.\s+/gm)?.length ?? 0) < 3)
+    problems.push("'## 사례로 보기'에 3단계 이상의 구체적인 사례가 없어요.");
   const evidenceAt = text.search(/^##\s*근거/m);
   const top = evidenceAt < 0 ? text : text.slice(0, evidenceAt);
+  const prose = top.replace(/\]\([^)]*\)/g, "]").replace(/https?:\/\/\S+/g, "");
+  const terms = new Set((prose.match(/[A-Za-z][A-Za-z0-9+-]{2,}/g) ?? []).map((t) => t.toLowerCase()));
+  if (terms.size > 14) problems.push(`결론부터 할 일까지 영문 용어가 ${terms.size}종류예요. 결정에 필요한 8개 안팎만 남기고 괄호로 풀어 주세요.`);
   const ids = top.match(/C-[0-9a-f]{8}/g)?.length ?? 0;
   if (ids > 2) problems.push(`결론·할 일 부분에 주장 ID가 ${ids}개 있어 읽기 어려워요. ID는 '## 근거'로 옮기세요.`);
   const hedges = top.match(HEDGES)?.length ?? 0;

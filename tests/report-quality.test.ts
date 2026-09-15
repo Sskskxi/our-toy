@@ -193,7 +193,8 @@ test("grades follow the rules on every run and jargon in the one-line answer is 
   const { reportProblems } = await import("../lib/engine");
   assert.equal(gradeSource("https://cse.cau.ac.kr/sub05/board.php", "공모전 안내"), 2, "a university board is not a primary source");
   assert.equal(gradeSource("https://www.law.go.kr/x"), 1);
-  const plain = "### 핵심 요점\n- **결론**: KISIA 공모전에 공공기관 AI 부품 목록 기준을 제안하세요.\n\n## 결론: x\n## 바로 할 일\n1. y";
+  const synthesis = await mock({ actor: "Claude", stage: "synthesis", round: 1, topic: "공모전", questions: [], context: null, mode: "mock" });
+  const plain = synthesis.answer.summary.replace(/\*\*결론\*\*: [^\n]*/, "**결론**: KISIA 공모전에 공공기관 AI 부품 목록 기준을 제안하세요.");
   assert.deepEqual(reportProblems(plain), []);
   const jargon = plain.replace("공공기관 AI 부품 목록 기준", "CycloneDX 기반 AI-BOM 최소 프로파일");
   assert.ok(reportProblems(jargon).some((m) => m.includes("영문 전문용어")));
@@ -305,4 +306,25 @@ test("a stopped follow-up can take another question; both run before the new rep
   assert.equal((byRound(4)!.context as { followUp: { question: string } }).followUp.question, "두 번째 후속");
   assert.match(JSON.stringify(live.find((r) => r.stage === "synthesis")!.context), /두 번째 후속[\s\S]*|첫 후속/);
   assert.match(startFollowUp(create({ ...input }), { question: "x" }) ?? "", /보고서가 나온/, "a plain failed run still cannot");
+});
+
+test("each claim carries its evidence and meaning, with a concrete story and few unexplained terms", async () => {
+  const { reportProblems } = await import("../lib/engine");
+  const { REPORT_RULES } = await import("../lib/provider");
+  assert.match(REPORT_RULES, /\*\*근거\*\*/);
+  assert.match(REPORT_RULES, /\*\*그래서\*\*/);
+  assert.match(REPORT_RULES, /## 사례로 보기/);
+  const good = (await mock({ actor: "Claude", stage: "synthesis", round: 1, topic: "공모전", questions: [], context: null, mode: "mock" })).answer.summary;
+  assert.deepEqual(reportProblems(good), []);
+  const labelsOnly = good
+    .replace(/- \*\*근거\*\*: [^\n]*\n/g, "- **근거**: arXiv:2506.08837\n")
+    .replace(/- \*\*그래서\*\*: [^\n]*\n/g, "");
+  const found = reportProblems(labelsOnly);
+  assert.ok(found.some((m) => m.includes("출처 링크가 달린 '근거'")), "a bare paper ID is not evidence");
+  assert.ok(found.some((m) => m.includes("'그래서'")));
+  const noStory = good.replace(/## 사례로 보기\n(\d\. [^\n]*\n)+/, "## 사례로 보기\n추후 작성\n");
+  assert.ok(reportProblems(noStory).some((m) => m.includes("사례로 보기")));
+  const jargon = good.replace("## 바로 할 일", "fail-open envelope HMAC mTLS OTel exporter Guardian rug pull CaMeL Progent service-17 OWASP ACS MCP OAuth\n\n## 바로 할 일");
+  assert.ok(reportProblems(jargon).some((m) => m.includes("영문 용어가")));
+  assert.deepEqual(reportProblems(good.replace("[합성 예시](https://example.com/mock/gpt)", "[합성 예시 CycloneDX MCP](https://example.com/very/long/path-with-words)")), [], "link targets do not count as jargon");
 });
