@@ -230,6 +230,8 @@ export type Project = Omit<Input, "mode" | "strategy"> & {
   report?: string;
   /** Earlier reports replaced by "보고서 다시 쓰기", newest last (max 5). */
   reportHistory?: { createdAt: string; markdown: string }[];
+  /** Questions asked after a report that reopened the research for more rounds. */
+  followUps?: FollowUp[];
   error?: string;
   tokens: number;
   providerSessions: Partial<Record<Actor, string>>;
@@ -237,6 +239,14 @@ export type Project = Omit<Input, "mode" | "strategy"> & {
   interventions?: Intervention[];
   /** Set while a failed run waits to resume on its own; cleared on success or manual action. */
   autoResume?: AutoResume;
+};
+export type FollowUp = {
+  id: string;
+  question: string;
+  createdAt: string;
+  /** Rounds already done when it was asked; its rounds are the ones after. */
+  fromRound: number;
+  rounds: number;
 };
 export type AutoResume = {
   reason: "transient" | "limit" | "restart";

@@ -23,6 +23,7 @@ function injectFailure(request: Request) {
 export async function mock(request: Request): Promise<Result> {
   injectFailure(request);
   const { actor, stage, round, questions } = request;
+  const followUp = (request.context as { followUp?: { question: string } } | null)?.followUp?.question;
   // Topics may be Markdown; mock sentences use a plain one-line title.
   const topic =
     (request.topic.split("\n").find((l) => l.trim()) ?? request.topic)
@@ -105,7 +106,13 @@ export async function mock(request: Request): Promise<Result> {
     answer.unresolved = [`⚖️ ${topic}: 지표 정의와 실패 조건 중 무엇을 먼저 볼 것인가`];
     answer.summary = `### 핵심 요점\n- **공통 결론**: 실증 근거가 부족합니다.\n- **쟁점 1개**: 우선순위가 갈립니다.\n\n${questions.map((q) => `## ${q}\n두 초안을 합친 합성 문단입니다.`).join("\n\n")}\n\n> ⚖️ 쟁점: GPT는 성공 지표 정의가 먼저, Claude는 실패 조건 평가가 먼저라고 봅니다.`;
   }
-  if (stage === "revise") {
+  if (stage === "revise" && followUp) {
+    answer.summary = `## 후속 질문: ${followUp.slice(0, 40)}\n${actor}가 라운드 ${round}에서 후속 질문에 맞춰 새 근거를 찾았어요.`;
+    answer.critiques = [{ claim: "후속 질문 섹션", objection: `없음 → ${actor}의 라운드 ${round} 조사 추가` }];
+    answer.claims = [{ statement: `${followUp.slice(0, 40)}: ${actor} 라운드 ${round}의 새 근거`, sources: [], confidence: 0.5 }];
+    answer.unresolved = [];
+  }
+  if (stage === "revise" && !followUp) {
     const doc = ((request.context as { stageContext?: { document?: string } } | null)?.stageContext?.document ?? "");
     const quiet = round >= 2;
     answer.critiques = quiet ? [] : [{ claim: "⚖️ 쟁점", objection: `${peerName}의 입장을 유지한 채 ${actor} 근거를 덧붙였습니다.` }];

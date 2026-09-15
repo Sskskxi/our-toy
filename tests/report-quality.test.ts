@@ -198,3 +198,58 @@ test("grades follow the rules on every run and jargon in the one-line answer is 
   const jargon = plain.replace("공공기관 AI 부품 목록 기준", "CycloneDX 기반 AI-BOM 최소 프로파일");
   assert.ok(reportProblems(jargon).some((m) => m.includes("영문 전문용어")));
 });
+
+for (const strategy of ["codraft", "relay", "debate"] as const)
+  test(`${strategy}: a follow-up question reopens the research for new rounds and a new report`, async () => {
+    const { startFollowUp } = await import("../lib/followup");
+    const p = create({ ...input, strategy, maxRounds: 2, minRounds: 1 });
+    await run(p, mock, () => save(p));
+    assert.equal(p.status, "complete");
+    const doneRounds = p.rounds.length;
+    const reportStages = ["contradictions", "synthesis", "report-edit"];
+    const doneResearch = p.calls.filter((c) => !reportStages.includes(c.stage)).length;
+    const firstReport = p.report!;
+    const question = "2025년 수상작과 겹치지 않으려면 무엇을 바꿔야 하나요?";
+    assert.equal(startFollowUp(p, { question, rounds: 2 }), null);
+    assert.equal(p.status, "queued");
+    const live: Request[] = [];
+    await run(p, async (r) => { live.push(r); return mock(r); }, () => save(p));
+    assert.equal(p.status, "complete");
+    assert.ok(p.rounds.length > doneRounds, "new rounds ran");
+    assert.ok(p.rounds.length <= doneRounds + 2);
+    assert.equal(p.calls.filter((c) => c.replayed).length, doneResearch, "research calls replay");
+    assert.ok(!live.some((r) => r.round <= doneRounds && ["draft", "merge", "revise", "explore", "research", "critique", "rebuttal", "plan"].includes(r.stage)), "no saved research step runs again");
+    const roundCalls = live.filter((r) => r.round > doneRounds && !["contradictions", "synthesis", "report-edit"].includes(r.stage));
+    assert.ok(roundCalls.length >= 2, "both models worked in the new rounds");
+    assert.ok(roundCalls.every((r) => (r.context as { followUp?: { question: string } }).followUp?.question === question));
+    const synthesis = live.find((r) => r.stage === "synthesis")!;
+    assert.match(JSON.stringify(synthesis.context), /followUpPolicy/);
+    assert.ok(p.questions.includes(question));
+    assert.equal(p.reportHistory?.at(-1)?.markdown, firstReport);
+    assert.ok(p.report && p.report !== undefined);
+    assert.equal(p.followUps?.length, 1);
+  });
+
+test("follow-up input is validated and a second follow-up builds on the first", async () => {
+  const { startFollowUp } = await import("../lib/followup");
+  const p = create({ ...input, strategy: "codraft", maxRounds: 1, minRounds: 1 });
+  assert.match(startFollowUp(p, { question: "질문" })!, /보고서가 나온/);
+  await run(p, mock, () => save(p));
+  assert.match(startFollowUp(p, { question: "  " })!, /입력/);
+  assert.match(startFollowUp(p, { question: "질문", rounds: 7 })!, /1~6/);
+  assert.match(startFollowUp(p, { question: "질문", rounds: 1.5 })!, /1~6/);
+  assert.match(startFollowUp(p, { question: "x".repeat(4001) })!, /4,000자/);
+  assert.equal(p.status, "complete", "rejected input changes nothing");
+  assert.equal(startFollowUp(p, { question: "첫 후속", rounds: 1 }), null);
+  await run(p, mock, () => save(p));
+  const afterFirst = p.rounds.length;
+  assert.equal(startFollowUp(p, { question: "두 번째 후속", rounds: 1 }), null);
+  const live: Request[] = [];
+  await run(p, async (r) => { live.push(r); return mock(r); }, () => save(p));
+  const revise = live.find((r) => r.stage === "revise")!;
+  assert.equal(revise.round, afterFirst + 1);
+  const ctx = revise.context as { followUp: { question: string; earlier: string[] } };
+  assert.equal(ctx.followUp.question, "두 번째 후속");
+  assert.deepEqual(ctx.followUp.earlier, ["첫 후속"]);
+  assert.equal(p.reportHistory?.length, 2);
+});

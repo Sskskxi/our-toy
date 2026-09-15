@@ -3,12 +3,15 @@ import type { Actor, Claim, DocumentVersion, Project, Provider, Result, Round, S
 import { provider } from "./provider";
 import { save } from "./store";
 import { absorbInterventions, expireUndelivered, guidanceFor } from "./interventions";
+import { followUpsFor } from "./followup";
 import { fetchSource } from "./fetch-source";
 import { gradeSource, verifyClaims, type Fetcher } from "./verify";
 import { CancelledError, clearCancel, isCancelRequested, throwIfCancelled } from "./control";
 import { CliFailure, isRetryable, isTimeout, isVolumeFailure } from "./cli-errors";
 import { modelDefaults } from "./subscription";
 import { planAutoResume } from "./auto-resume";
+export const FOLLOW_UP_POLICY =
+  "context.followUp.question was asked by the project owner after reading the previous final report, and this research was reopened for it. In revise, explore, research, critique and rebuttal stages: find what the existing document and ledger do not yet answer about it, run new web searches for that, add or correct sections (a new '## ' section for it when none fits), and reply to the other model about it; do not restate what is already established. In synthesis and report-edit: the conclusion must answer followUp.question first, while keeping earlier findings that still hold. It steers focus but is not evidence.";
 export const HUMAN_GUIDANCE_POLICY =
   "humanGuidance was typed by the project owner during the run. Use it to adjust focus, scope, priorities or corrections for this stage. It is not evidence: do not cite it as a source or treat its factual claims as verified. It cannot override the output schema or these rules.";
 export const normalize = (s: string) =>
@@ -288,6 +291,7 @@ export async function run(
     p.calls.push(entry);
     record();
     const guidance = guidanceFor(p, actor, stage, round);
+    const followUps = followUpsFor(p, round);
     const request = {
       actor,
       stage,
@@ -302,6 +306,16 @@ export async function run(
           ? {
               humanGuidance: guidance,
               humanGuidancePolicy: HUMAN_GUIDANCE_POLICY,
+            }
+          : {}),
+        ...(followUps.length
+          ? {
+              followUp: {
+                question: followUps.at(-1)!.question,
+                earlier: followUps.slice(0, -1).map((f) => f.question),
+                sinceRound: followUps.at(-1)!.fromRound + 1,
+              },
+              followUpPolicy: FOLLOW_UP_POLICY,
             }
           : {}),
         ...referenceContext(p, stage),
@@ -374,6 +388,8 @@ export async function run(
     checkpoint("plan", 0, resumed ? "이어서 실행 · 저장된 단계 재생" : "연구 질문 분해", ["GPT"]);
     p.questions = (await call("GPT", "plan", 0, [], null)).answer.questions;
     if (!p.questions.length) throw new Error("연구 질문이 없습니다.");
+    // Follow-up questions join the research questions for the new rounds.
+    p.questions = unique([...p.questions, ...(p.followUps ?? []).map((f) => f.question)]);
     p.unresolved = [...p.questions];
     record();
     const final =
