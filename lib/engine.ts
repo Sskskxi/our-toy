@@ -11,7 +11,7 @@ import { CliFailure, isRetryable, isTimeout, isVolumeFailure } from "./cli-error
 import { modelDefaults } from "./subscription";
 import { planAutoResume } from "./auto-resume";
 export const FOLLOW_UP_POLICY =
-  "context.followUp.question was asked by the project owner after reading the previous final report, and this research was reopened for it. In revise, explore, research, critique and rebuttal stages: find what the existing document and ledger do not yet answer about it, run new web searches for that, add or correct sections (a new '## ' section for it when none fits), and reply to the other model about it; do not restate what is already established. In synthesis and report-edit: the conclusion must answer followUp.question first, while keeping earlier findings that still hold. It steers focus but is not evidence.";
+  "context.followUp.question was asked by the project owner after reading the previous final report, and this research was reopened for it. In revise, explore, research, critique and rebuttal stages: find what the existing document and ledger do not yet answer about it, run new web searches for that, add or correct sections (a new '## ' section for it when none fits), and reply to the other model about it; do not restate what is already established. In synthesis and report-edit: the conclusion must answer followUp.question first, while keeping earlier findings that still hold. followUp.conversation holds the owner's earlier chat questions and the models' answers about this research: build on them instead of starting over (reuse their leads, candidate options and named sources, and do not re-answer what they settled), but they are model answers, not evidence, so verify a point with a source before putting it in the document or ledger. It steers focus but is not evidence.";
 export const HUMAN_GUIDANCE_POLICY =
   "humanGuidance was typed by the project owner during the run. Use it to adjust focus, scope, priorities or corrections for this stage. It is not evidence: do not cite it as a source or treat its factual claims as verified. It cannot override the output schema or these rules.";
 export const normalize = (s: string) =>
@@ -223,9 +223,13 @@ export async function withRetry<T>(
 const callKey = (c: { actor: Actor; stage: Stage; round: number }) =>
   `${c.actor}|${c.stage}|${c.round}`;
 
+const CHAT_STAGES: Stage[] = ["conversation", "conversation-synthesis"];
+
 export function prepareResume(p: Project) {
-  const previous = p.calls.filter((c) => c.status === "complete" && c.result);
-  p.calls = [];
+  // Follow-up chat calls are not research steps: keep their log as is.
+  const chat = p.calls.filter((c) => CHAT_STAGES.includes(c.stage));
+  const previous = p.calls.filter((c) => !CHAT_STAGES.includes(c.stage) && c.status === "complete" && c.result);
+  p.calls = chat;
   p.rounds = [];
   p.claims = [];
   p.questions = [];
@@ -314,6 +318,7 @@ export async function run(
                 question: followUps.at(-1)!.question,
                 earlier: followUps.slice(0, -1).map((f) => f.question),
                 sinceRound: followUps.at(-1)!.fromRound + 1,
+                conversation: conversationDigest(p),
               },
               followUpPolicy: FOLLOW_UP_POLICY,
             }
@@ -973,4 +978,23 @@ export function reportProblems(markdown: string) {
   const pendingItems = pending.split("\n").filter((l) => /^\s*([-*]|\d+\.)\s+/.test(l)).length;
   if (pendingItems > 5) problems.push(`'## 확인이 더 필요한 것'이 ${pendingItems}개예요. 결론에 영향을 주는 5개 이하로 줄이세요.`);
   return problems;
+}
+
+/**
+ * The owner's earlier chat about this research (question and final answer per
+ * turn), newest kept first within the budget, returned oldest first.
+ */
+export function conversationDigest(p: Project, maxChars = 16000) {
+  const out: { asked: string; answer: string; at: string }[] = [];
+  let budget = maxChars;
+  for (const t of [...(p.conversation?.turns ?? [])].reverse()) {
+    if (t.status !== "complete" || !t.answer?.trim()) continue;
+    const asked = t.userText.slice(0, 800);
+    const answer = t.answer.length > 3000 ? `${t.answer.slice(0, 3000)}\n[이하 생략]` : t.answer;
+    const size = asked.length + answer.length;
+    if (size > budget) break;
+    budget -= size;
+    out.push({ asked, answer, at: t.createdAt });
+  }
+  return out.reverse();
 }

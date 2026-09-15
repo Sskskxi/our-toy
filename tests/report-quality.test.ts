@@ -253,3 +253,29 @@ test("follow-up input is validated and a second follow-up builds on the first", 
   assert.deepEqual(ctx.followUp.earlier, ["첫 후속"]);
   assert.equal(p.reportHistory?.length, 2);
 });
+
+test("follow-up research builds on the earlier chat and keeps the chat call log", async () => {
+  const { startFollowUp } = await import("../lib/followup");
+  const { conversationDigest } = await import("../lib/engine");
+  const p = create({ ...input, strategy: "codraft", maxRounds: 1, minRounds: 1 });
+  await run(p, mock, () => save(p));
+  const now = new Date().toISOString();
+  const turn = (userText: string, answer: string, status: "complete" | "failed" = "complete") => ({ id: userText, target: "both" as const, userText, status, attempts: 1, createdAt: now, updatedAt: now, responses: {}, answer });
+  p.conversation.turns.push(turn("AI-BOM이 뭔지 설명해줘", "모델·데이터·외부 API 목록이에요. 후보 B: 도구권한 승인 기준"), turn("실패한 질문", "", "failed"));
+  const chatCall = { actor: "GPT" as const, stage: "conversation" as const, round: 1, status: "complete" as const, startedAt: now, finishedAt: now };
+  p.calls.push(chatCall);
+  assert.equal(startFollowUp(p, { question: "다른 주제 후보를 더 찾아줘", rounds: 1 }), null);
+  const live: Request[] = [];
+  await run(p, async (r) => { live.push(r); return mock(r); }, () => save(p));
+  assert.equal(p.status, "complete");
+  const revise = live.find((r) => r.stage === "revise")!;
+  const conv = (revise.context as { followUp: { conversation: { asked: string; answer: string }[] } }).followUp.conversation;
+  assert.deepEqual(conv.map((c) => c.asked), ["AI-BOM이 뭔지 설명해줘"], "only answered turns are reused");
+  assert.match(conv[0].answer, /후보 B/);
+  assert.match(JSON.stringify(live.find((r) => r.stage === "synthesis")!.context), /AI-BOM이 뭔지/);
+  assert.equal(p.calls.filter((c) => c.stage === "conversation").length, 1, "chat call log survives the reopened run");
+  p.conversation.turns.push(turn("긴 질문", "가".repeat(20000)));
+  const digest = conversationDigest(p, 5000);
+  assert.ok(JSON.stringify(digest).length < 8000, "long answers are cut to the budget");
+  assert.match(digest.at(-1)!.answer, /이하 생략/);
+});
