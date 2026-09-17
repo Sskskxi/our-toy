@@ -51,3 +51,22 @@ export function startFollowUp(p: Project, input: FollowUpInput): string | null {
 export function followUpsFor(p: Project, round: number) {
   return (p.followUps ?? []).filter((f) => round > f.fromRound);
 }
+
+const REPORT_STAGE_NAMES = ["synthesis", "report-edit"];
+
+/**
+ * Queue a new final report from the saved research: research calls replay and
+ * only the report stages run again. Used by "보고서 다시 쓰기" and after a
+ * follow-up chat answer, so the report keeps up with what the owner asked for.
+ */
+export function queueReportRefresh(p: Project, stage: string) {
+  if (p.status !== "complete" || !p.report) return false;
+  p.reportHistory = [...(p.reportHistory ?? []), { createdAt: p.updatedAt, markdown: p.report }].slice(-5);
+  p.calls = p.calls.filter((c) => !REPORT_STAGE_NAMES.includes(c.stage));
+  // The old report stays readable (and answerable) until the new one lands.
+  p.status = "queued";
+  p.stage = stage;
+  p.error = undefined;
+  p.autoResume = undefined;
+  return true;
+}

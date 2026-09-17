@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { messageSchema, type Actor, type MessageInput, type Project, type Provider, type Result, type Stage } from "./types";
 import { provider } from "./provider";
 import { callAdaptive, effortFor, referenceContext, timeoutScaleFor } from "./engine";
+import { queueReportRefresh } from "./followup";
 import { modelDefaults } from "./subscription";
 import { planTurnRetry, TURN_RETRIES } from "./auto-resume";
 import { get, save } from "./store";
@@ -213,6 +214,10 @@ export async function runConversation(
     turn.autoRetry = undefined;
     refreshMemory(p);
     p.stage = "연구 완료 · 대화 가능";
+    // What the owner asked for after the report belongs in the report too, so
+    // the answer queues a new one from the saved research (REPORT_SYNC=off).
+    if (process.env.REPORT_SYNC !== "off")
+      queueReportRefresh(p, "대화 내용을 반영해 보고서를 다시 쓰는 중");
   } catch (error) {
     turn.status = "failed";
     const cancelled = error instanceof CancelledError || isCancelRequested(p.id);

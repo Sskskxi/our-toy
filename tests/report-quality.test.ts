@@ -328,3 +328,40 @@ test("each claim carries its evidence and meaning, with a concrete story and few
   assert.ok(reportProblems(jargon).some((m) => m.includes("영문 용어가")));
   assert.deepEqual(reportProblems(good.replace("[합성 예시](https://example.com/mock/gpt)", "[합성 예시 CycloneDX MCP](https://example.com/very/long/path-with-words)")), [], "link targets do not count as jargon");
 });
+
+test("a follow-up chat answer updates the final report with what was asked", async () => {
+  const { enqueueMessage, runConversation } = await import("../lib/conversation");
+  const p = create({ ...input, strategy: "codraft", maxRounds: 1, minRounds: 1 });
+  await run(p, mock, () => save(p));
+  const first = p.report!;
+  const turn = enqueueMessage(p, { message: "시제품 없이도 되는지 알려줘", target: "both" });
+  await runConversation(p, turn.id, mock, () => save(p));
+  assert.equal(p.conversation.turns.at(-1)!.status, "complete");
+  assert.equal(p.status, "queued", "the answer queues a new report");
+  assert.match(p.stage, /보고서를 다시 쓰는 중/);
+  assert.equal(p.reportHistory?.at(-1)?.markdown, first);
+  assert.equal(p.report, first, "the old report stays until the new one is written");
+  const live: Request[] = [];
+  await run(p, async (r) => { live.push(r); return mock(r); }, () => save(p));
+  assert.equal(p.status, "complete");
+  assert.deepEqual(live.map((r) => r.stage), ["synthesis"], "only the report runs again");
+  const ctx = live[0].context as { conversation: { asked: string }[]; conversationPolicy: string };
+  assert.deepEqual(ctx.conversation.map((c) => c.asked), ["시제품 없이도 되는지 알려줘"]);
+  assert.match(ctx.conversationPolicy, /Fold what they asked for/);
+  assert.ok(p.report);
+
+  process.env.REPORT_SYNC = "off";
+  try {
+    const second = enqueueMessage(p, { message: "두 번째 질문", target: "both" });
+    await runConversation(p, second.id, mock, () => save(p));
+    assert.equal(p.status, "complete", "the report stays as it is when the sync is off");
+    assert.ok(p.report);
+  } finally {
+    delete process.env.REPORT_SYNC;
+  }
+
+  const failing = enqueueMessage(p, { message: "실패할 질문", target: "both" });
+  await runConversation(p, failing.id, async () => { throw new Error("실패"); }, () => save(p));
+  assert.equal(p.conversation.turns.at(-1)!.status, "failed");
+  assert.equal(p.status, "complete", "a failed answer does not touch the report");
+});

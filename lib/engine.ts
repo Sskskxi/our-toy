@@ -10,6 +10,8 @@ import { CancelledError, clearCancel, isCancelRequested, throwIfCancelled } from
 import { CliFailure, isRetryable, isTimeout, isVolumeFailure } from "./cli-errors";
 import { modelDefaults } from "./subscription";
 import { planAutoResume } from "./auto-resume";
+export const CONVERSATION_POLICY =
+  "context.conversation holds the owner's follow-up questions after the previous report and the answers they were given, oldest first. Fold what they asked for into this report: add or rewrite the sections they asked about, correct what they questioned, and let their latest request shape the conclusion when it changes the decision. Say in the report what changed for their question. They are model answers, not evidence: verify a point against the ledger or a source before stating it as fact.";
 export const FOLLOW_UP_POLICY =
   "context.followUp.question was asked by the project owner after reading the previous final report, and this research was reopened for it. In revise, explore, research, critique and rebuttal stages: find what the existing document and ledger do not yet answer about it, run new web searches for that, add or correct sections (a new '## ' section for it when none fits), and reply to the other model about it; do not restate what is already established. In synthesis and report-edit: the conclusion must answer followUp.question first, while keeping earlier findings that still hold. followUp.conversation holds the owner's earlier chat questions and the models' answers about this research: build on them instead of starting over (reuse their leads, candidate options and named sources, and do not re-answer what they settled), but they are model answers, not evidence, so verify a point with a source before putting it in the document or ledger. It steers focus but is not evidence.";
 export const HUMAN_GUIDANCE_POLICY =
@@ -224,6 +226,7 @@ const callKey = (c: { actor: Actor; stage: Stage; round: number }) =>
   `${c.actor}|${c.stage}|${c.round}`;
 
 const CHAT_STAGES: Stage[] = ["conversation", "conversation-synthesis"];
+const REPORT_STAGES: Stage[] = ["synthesis", "report-edit"];
 
 export function prepareResume(p: Project) {
   // Follow-up chat calls are not research steps: keep their log as is.
@@ -296,6 +299,9 @@ export async function run(
     record();
     const guidance = guidanceFor(p, actor, stage, round);
     const followUps = followUpsFor(p, round);
+    // The report always reflects the owner's follow-up chat, even without a
+    // follow-up research round; rounds get the same digest through followUp.
+    const chat = REPORT_STAGES.includes(stage) ? conversationDigest(p) : [];
     const request = {
       actor,
       stage,
@@ -318,11 +324,12 @@ export async function run(
                 question: followUps.at(-1)!.question,
                 earlier: followUps.slice(0, -1).map((f) => f.question),
                 sinceRound: followUps.at(-1)!.fromRound + 1,
-                conversation: conversationDigest(p),
+                ...(chat.length ? {} : { conversation: conversationDigest(p) }),
               },
               followUpPolicy: FOLLOW_UP_POLICY,
             }
           : {}),
+        ...(chat.length ? { conversation: chat, conversationPolicy: CONVERSATION_POLICY } : {}),
         ...referenceContext(p, stage),
       },
       mode: p.mode,

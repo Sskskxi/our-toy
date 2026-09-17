@@ -2,11 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { rejectUnsafe } from "@/lib/http";
 import { get, save } from "@/lib/store";
 import { modelsSchema } from "@/lib/types";
+import { queueReportRefresh } from "@/lib/followup";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const REPORT_STAGES = new Set(["synthesis", "report-edit"]);
 
 // Rewrite only the final report of a finished run with the current report
 // rules. Research calls are replayed from their saved results, so this costs
@@ -32,13 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         if (models.data[actor])
           p.models = { ...p.models, [actor]: { ...p.models?.[actor], ...models.data[actor] } };
     }
-    p.reportHistory = [...(p.reportHistory ?? []), { createdAt: p.updatedAt, markdown: p.report }].slice(-5);
-    p.calls = p.calls.filter((c) => !REPORT_STAGES.has(c.stage));
-    p.report = undefined;
-    p.status = "queued";
-    p.stage = "보고서 다시 쓰기 대기";
-    p.error = undefined;
-    p.autoResume = undefined;
+    queueReportRefresh(p, "보고서 다시 쓰기 대기");
     save(p);
     return NextResponse.json({ id: p.id, status: p.status }, { status: 202 });
   } catch {
