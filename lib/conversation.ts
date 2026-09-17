@@ -216,7 +216,7 @@ export async function runConversation(
     p.stage = "연구 완료 · 대화 가능";
     // What the owner asked for after the report belongs in the report too, so
     // the answer queues a new one from the saved research (REPORT_SYNC=off).
-    if (process.env.REPORT_SYNC !== "off")
+    if (p.reportSync !== false && process.env.REPORT_SYNC !== "off")
       queueReportRefresh(p, "대화 내용을 반영해 보고서를 다시 쓰는 중");
   } catch (error) {
     turn.status = "failed";

@@ -365,3 +365,25 @@ test("a follow-up chat answer updates the final report with what was asked", asy
   assert.equal(p.conversation.turns.at(-1)!.status, "failed");
   assert.equal(p.status, "complete", "a failed answer does not touch the report");
 });
+
+test("the per-project switch decides whether an answer rewrites the report", async () => {
+  const { enqueueMessage, runConversation } = await import("../lib/conversation");
+  const { setReportSync, get } = await import("../lib/store");
+  const p = create({ ...input, strategy: "codraft", maxRounds: 1, minRounds: 1 });
+  await run(p, mock, () => save(p));
+  assert.equal(get(p.id)!.reportSync, true, "on by default");
+  setReportSync(p.id, false);
+  assert.equal(get(p.id)!.reportSync, false);
+  const off = get(p.id)!;
+  const turn = enqueueMessage(off, { message: "짧게 요약해 줘", target: "both" });
+  await runConversation(off, turn.id, mock, () => save(off));
+  assert.equal(off.status, "complete", "no report rewrite when the switch is off");
+  assert.equal(off.reportHistory, undefined);
+  setReportSync(p.id, true);
+  const on = get(p.id)!;
+  assert.equal(on.reportSync, true);
+  const again = enqueueMessage(on, { message: "이번엔 반영해 줘", target: "both" });
+  await runConversation(on, again.id, mock, () => save(on));
+  assert.equal(on.status, "queued");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(process.env.DATA_DIR!, `${p.id}.json`), "utf8")).reportSync, undefined, "the switch is stored beside the project, not inside it");
+});

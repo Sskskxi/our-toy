@@ -22,6 +22,26 @@ export function readTitle(id: string) {
     return undefined;
   }
 }
+// Like the title, this setting lives beside the project so toggling it never
+// races the worker's saves: "off" means a chat answer leaves the report alone.
+function reportSyncFile(id: string) {
+  return file(id).replace(/\.json$/, ".reportsync");
+}
+export function readReportSync(id: string) {
+  try {
+    return fs.readFileSync(reportSyncFile(id), "utf8").trim() !== "off";
+  } catch {
+    return true;
+  }
+}
+export function setReportSync(id: string, on: boolean) {
+  const target = reportSyncFile(id);
+  if (on) return fs.rmSync(target, { force: true });
+  const temp = target + "." + randomUUID() + ".tmp";
+  fs.writeFileSync(temp, "off", { mode: 0o600 });
+  fs.renameSync(temp, target);
+}
+
 export function setTitle(id: string, title: string) {
   const target = titleFile(id);
   if (!title.trim()) return fs.rmSync(target, { force: true });
@@ -33,14 +53,14 @@ export function setTitle(id: string, title: string) {
 /** Remove a project and its side files. Callers must check it is idle. */
 export function remove(id: string) {
   const base = file(id).replace(/\.json$/, "");
-  for (const ext of [".json", ".inbox.json", ".title", ".cancel"])
+  for (const ext of [".json", ".inbox.json", ".title", ".reportsync", ".cancel"])
     fs.rmSync(base + ext, { force: true });
   fs.rmSync(path.join(dataDir(), ".sessions", id), { recursive: true, force: true });
 }
 
 export function save(p: Project) {
   p.updatedAt = new Date().toISOString();
-  const { title: _title, ...stored } = p;
+  const { title: _title, reportSync: _sync, ...stored } = p;
   const target = file(p.id),
     temp = target + "." + randomUUID() + ".tmp";
   // Compact JSON: projects are rewritten after every call and can reach
@@ -61,6 +81,7 @@ export function get(id: string): Project | undefined {
     return undefined;
   }
   p.title = readTitle(id);
+  p.reportSync = readReportSync(id);
   p.providerSessions ??= {};
   p.conversation ??= {
     id: randomUUID(),

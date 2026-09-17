@@ -237,6 +237,8 @@ export type Project = Omit<Input, "mode" | "strategy"> & {
   reportHistory?: { createdAt: string; markdown: string }[];
   /** Questions asked after a report that reopened the research for more rounds. */
   followUps?: FollowUp[];
+  /** Rewrite the report after each follow-up answer (default true; stored beside the project). */
+  reportSync?: boolean;
   error?: string;
   tokens: number;
   providerSessions: Partial<Record<Actor, string>>;
