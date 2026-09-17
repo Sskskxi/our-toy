@@ -239,7 +239,7 @@ test("follow-up input is validated and a second follow-up builds on the first", 
   assert.match(startFollowUp(p, { question: "  " })!, /입력/);
   assert.match(startFollowUp(p, { question: "질문", rounds: 7 })!, /1~6/);
   assert.match(startFollowUp(p, { question: "질문", rounds: 1.5 })!, /1~6/);
-  assert.match(startFollowUp(p, { question: "x".repeat(4001) })!, /4,000자/);
+  assert.match(startFollowUp(p, { question: "x".repeat(20001) })!, /20,000자/);
   assert.equal(p.status, "complete", "rejected input changes nothing");
   assert.equal(startFollowUp(p, { question: "첫 후속", rounds: 1 }), null);
   await run(p, mock, () => save(p));
@@ -386,4 +386,21 @@ test("the per-project switch decides whether an answer rewrites the report", asy
   await runConversation(on, again.id, mock, () => save(on));
   assert.equal(on.status, "queued");
   assert.equal(JSON.parse(fs.readFileSync(path.join(process.env.DATA_DIR!, `${p.id}.json`), "utf8")).reportSync, undefined, "the switch is stored beside the project, not inside it");
+});
+
+test("a full-page research brief fits in the topic, the chat and a follow-up", async () => {
+  const { inputSchema, messageSchema } = await import("../lib/types");
+  const { startFollowUp } = await import("../lib/followup");
+  const brief = "나는 alkaline HER 또는 OER용 파우더 기반 electrocatalyst 후보를 탐색하고 있다.\n".repeat(120);
+  assert.ok(brief.length > 7000 && brief.length < 20000);
+  assert.equal(inputSchema.safeParse({ ...input, topic: brief }).success, true);
+  assert.equal(inputSchema.safeParse({ ...input, topic: "가".repeat(20001) }).success, false);
+  assert.equal(messageSchema.safeParse({ message: brief, target: "both" }).success, true);
+  const p = create({ ...input, topic: brief, strategy: "codraft", maxRounds: 1, minRounds: 1 });
+  const seen: Request[] = [];
+  await run(p, async (r) => { seen.push(r); return mock(r); }, () => save(p));
+  assert.equal(p.status, "complete");
+  assert.equal(seen[0].topic, brief.trim(), "the whole brief reaches the models");
+  assert.equal(startFollowUp(p, { question: brief, rounds: 1 }), null);
+  assert.match(startFollowUp(p, { question: "가".repeat(20001) }) ?? "", /20,000자/);
 });

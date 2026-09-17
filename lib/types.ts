@@ -38,7 +38,9 @@ export const inputSchema = z
       name: z.string().min(1).max(200).regex(/\.(pdf|txt|md|csv|json|log)$/i),
       text: z.string().min(1).max(40000).refine(v => !v.includes("\u0000")),
     })).max(5).optional(),
-    topic: z.string().trim().min(5).max(2000),
+    // Long research briefs (conditions, criteria, exclusions) are the point of
+    // this app, so the topic holds a full page of Markdown.
+    topic: z.string().trim().min(5).max(20000),
     mode: z.enum(["mock", "subscription"]).default("mock"),
     strategy: z.enum(["codraft", "debate", "relay"]).default("codraft"),
     maxRounds: z.number().int().min(1).max(30).default(8),
@@ -75,7 +77,7 @@ export type Stage =
 /** Stages allowed to use web search when ENABLE_WEB_SEARCH is on. */
 export const SEARCH_STAGES: Stage[] = ["research", "draft", "revise", "explore", "conversation"];
 export const messageSchema = z.object({
-  message: z.string().trim().min(1, "메시지를 입력하세요.").max(10000),
+  message: z.string().trim().min(1, "메시지를 입력하세요.").max(20000),
   target: z.enum(["GPT", "Claude", "both"]),
   models: modelsSchema.optional(),
 });

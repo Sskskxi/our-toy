@@ -15,7 +15,7 @@ export type FollowUpInput = { question: string; rounds?: number };
 export function startFollowUp(p: Project, input: FollowUpInput): string | null {
   const question = input.question?.trim() ?? "";
   if (!question) return "후속 질문을 입력해 주세요.";
-  if (question.length > 4000) return "후속 질문은 4,000자 이내로 써 주세요.";
+  if (question.length > 20000) return "후속 질문은 20,000자 이내로 써 주세요.";
   const rounds = input.rounds ?? 2;
   if (!Number.isInteger(rounds) || rounds < 1 || rounds > FOLLOW_UP_MAX_ROUNDS)
     return `추가 라운드는 1~${FOLLOW_UP_MAX_ROUNDS} 사이로 정해 주세요.`;

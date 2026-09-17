@@ -100,7 +100,7 @@ test("conversation persists after reload, serializes messages, and retries faile
 test("message validation and legacy project migration are safe", () => {
   const p = completedProject();
   assert.throws(() => enqueueMessage(p, { message: " ", target: "GPT" }));
-  assert.throws(() => enqueueMessage(p, { message: "x".repeat(10001), target: "Claude" }));
+  assert.throws(() => enqueueMessage(p, { message: "x".repeat(20001), target: "Claude" }));
 
   delete (p as Partial<Project>).conversation;
   delete (p as Partial<Project>).providerSessions;
