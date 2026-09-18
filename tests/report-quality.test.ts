@@ -404,3 +404,17 @@ test("a full-page research brief fits in the topic, the chat and a follow-up", a
   assert.equal(startFollowUp(p, { question: brief, rounds: 1 }), null);
   assert.match(startFollowUp(p, { question: "가".repeat(20001) }) ?? "", /20,000자/);
 });
+
+test("PDF text is read with a stream reader, which Safari can run", async () => {
+  // pdf.js getTextContent() uses `for await (… of stream)`; Safari has no async
+  // iterator on ReadableStream, so every PDF upload there threw
+  // "undefined is not a function" inside getTextContent.
+  const source = fs
+    .readFileSync(path.join(process.cwd(), "app/pdf.ts"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+  assert.match(source, /streamTextContent\(/);
+  assert.match(source, /getReader\(\)/);
+  assert.doesNotMatch(source, /\.getTextContent\(/, "getTextContent breaks Safari");
+  assert.doesNotMatch(source, /for await/);
+});

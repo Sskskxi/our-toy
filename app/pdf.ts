@@ -21,6 +21,28 @@ function failureDetail(e: unknown) {
   return [error?.name, error?.message, frame].filter(Boolean).join(" · ").slice(0, 300) || String(e);
 }
 
+type TextItems = Awaited<ReturnType<import("pdfjs-dist").PDFPageProxy["getTextContent"]>>["items"];
+
+/**
+ * Text items of one page. pdf.js's getTextContent() reads its stream with
+ * `for await (… of stream)`, and Safari still has no async iterator on
+ * ReadableStream, so there it threw "undefined is not a function" for every
+ * PDF. Reading the stream with a reader works in every browser.
+ */
+async function readTextItems(page: import("pdfjs-dist").PDFPageProxy): Promise<TextItems> {
+  const reader = page.streamTextContent({ disableNormalization: false }).getReader();
+  const items: TextItems = [];
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return items;
+      items.push(...value.items);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export async function extractPdfText(file: File, maxChars: number): Promise<PdfText> {
   // The reader is loaded on demand, so a page left open across an app update
   // asks for files the new build no longer has. Say so instead of failing with
@@ -61,8 +83,7 @@ export async function extractPdfText(file: File, maxChars: number): Promise<PdfT
     const last = Math.min(doc.numPages, PDF_MAX_PAGES);
     for (let n = 1; n <= last; n++) {
       const page = await doc.getPage(n);
-      const content = await page.getTextContent();
-      const text = content.items
+      const text = (await readTextItems(page))
         .map((item) => ("str" in item ? item.str + (item.hasEOL ? "\n" : "") : ""))
         .join("")
         .replace(/[ \t]+\n/g, "\n")
