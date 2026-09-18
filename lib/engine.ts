@@ -7,7 +7,7 @@ import { followUpsFor } from "./followup";
 import { fetchSource } from "./fetch-source";
 import { gradeSource, verifyClaims, type Fetcher } from "./verify";
 import { CancelledError, clearCancel, isCancelRequested, throwIfCancelled } from "./control";
-import { CliFailure, isRetryable, isTimeout, isVolumeFailure } from "./cli-errors";
+import { CliFailure, isLimit, isRetryable, isTimeout, isVolumeFailure } from "./cli-errors";
 import { modelDefaults } from "./subscription";
 import { planAutoResume } from "./auto-resume";
 export const CONVERSATION_POLICY =
@@ -278,6 +278,9 @@ export async function run(
     round: number,
     questions: string[],
     context: unknown,
+    // Stages only one model runs (plan, merge, contradictions, report) hand over
+    // to the other model when this account runs out of usage.
+    options: { handOver?: boolean } = {},
   ): Promise<Result> {
     const hit = cached(callKey({ actor, stage, round }));
     if (!hit) {
@@ -381,6 +384,14 @@ export async function run(
         : error instanceof Error
           ? error.message
           : "연구 호출 실패";
+      if (options.handOver && canHandOver(p, actor, error)) {
+        const helper = otherActor(actor);
+        markLimited(p, actor, error);
+        entry.finishedAt = new Date().toISOString();
+        p.stage = `${actor} 사용량 한도 · ${helper}가 이어서 진행해요`;
+        record();
+        return call(helper, stage, round, questions, context);
+      }
       throw error;
     } finally {
       entry.finishedAt = new Date().toISOString();
@@ -413,7 +424,7 @@ export async function run(
     p.status = "running";
     record();
     checkpoint("plan", 0, resumed ? "이어서 실행 · 저장된 단계 재생" : "연구 질문 분해", ["GPT"]);
-    p.questions = (await call("GPT", "plan", 0, [], null)).answer.questions;
+    p.questions = (await call("GPT", "plan", 0, [], null, { handOver: true })).answer.questions;
     if (!p.questions.length) throw new Error("연구 질문이 없습니다.");
     // Follow-up questions join the research questions for the new rounds.
     p.questions = unique([...p.questions, ...(p.followUps ?? []).map((f) => f.question)]);
@@ -442,7 +453,7 @@ export async function run(
           confidence,
           sources: sources.map((s) => ({ title: s.title, grade: s.grade, check: s.check?.status })),
         })),
-      });
+      }, { handOver: true });
       p.contradictions = found.answer.critiques.map((c) => ({
         between: c.claim,
         reason: c.objection,
@@ -450,9 +461,10 @@ export async function run(
       }));
       record();
     }
-    checkpoint("synthesis", p.rounds.length, "최종 보고서 종합", [final.synthesizer]);
+    const synthesizer = p.limited?.[final.synthesizer] ? otherActor(final.synthesizer) : final.synthesizer;
+    checkpoint("synthesis", p.rounds.length, "최종 보고서 종합", [synthesizer]);
     const report = await call(
-      final.synthesizer,
+      synthesizer,
       "synthesis",
       p.rounds.length,
       p.questions,
@@ -466,6 +478,7 @@ export async function run(
         contradictions: p.contradictions ?? [],
         reportTemplate: p.reportTemplate ?? "default",
       },
+      { handOver: true },
     );
     if (!report.answer.summary.trim())
       throw new Error("최종 보고서가 비어 있습니다.");
@@ -474,7 +487,8 @@ export async function run(
     // as editor, and the edit is kept only if it breaks fewer rules.
     const problems = reportProblems(body);
     if (problems.length && process.env.REPORT_EDIT !== "off") {
-      const editor: Actor = final.synthesizer === "GPT" ? "Claude" : "GPT";
+      const editor = otherActor(synthesizer);
+      if (p.limited?.[editor]) throw new SkipEdit();
       checkpoint("report-edit", p.rounds.length, "보고서 결론 다듬기", [editor]);
       try {
         const edited = await call(editor, "report-edit", p.rounds.length, p.questions, {
@@ -540,6 +554,7 @@ type EngineTools = {
     round: number,
     questions: string[],
     context: unknown,
+    options?: { handOver?: boolean },
   ) => Promise<Result>;
   pair: <T>(a: Promise<T>, b: Promise<T>) => Promise<[T, T]>;
   checkpoint: (stage: Stage, round: number, label: string, actors?: Actor[]) => void;
@@ -747,20 +762,33 @@ function addVersion(
 async function coDraftRounds({ p, call, pair, checkpoint, record }: EngineTools): Promise<RoundsOutcome> {
   const questions = p.questions;
   checkpoint("draft", 1, "라운드 1 · 각자 초안 작성");
-  const drafts = await pair(
-    call("GPT", "draft", 1, questions, null),
-    call("Claude", "draft", 1, questions, null),
-  );
-  addVersion(p, "GPT", "draft", 1, drafts[0]);
-  addVersion(p, "Claude", "draft", 1, drafts[1]);
-  checkpoint("merge", 1, "라운드 1 · 두 초안 합치기", ["GPT"]);
-  const merged = await call("GPT", "merge", 1, questions, {
-    drafts: { GPT: drafts[0].answer, Claude: drafts[1].answer },
-  });
-  if (!merged.answer.summary.trim()) throw new Error("합친 문서가 비어 있습니다.");
-  let document = addVersion(p, "GPT", "merge", 1, merged);
-  const draftUrls = [...drafts[0].observedUrls, ...drafts[1].observedUrls];
-  merge(p, [{ actor: "GPT", result: { ...merged, observedUrls: unique([...draftUrls, ...merged.observedUrls]) } }], 1);
+  const drafts = await bothOrOne(p, [
+    { actor: "GPT", run: () => call("GPT", "draft", 1, questions, null) },
+    { actor: "Claude", run: () => call("Claude", "draft", 1, questions, null) },
+  ]);
+  for (const { actor, result } of drafts) addVersion(p, actor, "draft", 1, result);
+  const draftUrls = drafts.flatMap((d) => d.result.observedUrls);
+  let document: DocumentVersion;
+  if (drafts.length === 1) {
+    // One account is out of usage: its draft becomes the shared document and
+    // the merge call is skipped, since there is nothing to merge it with.
+    const only = drafts[0];
+    document = addVersion(p, only.actor, "merge", 1, only.result);
+    merge(p, [{ actor: only.actor, result: only.result }], 1);
+  } else {
+    checkpoint("merge", 1, "라운드 1 · 두 초안 합치기", ["GPT"]);
+    const merged = await call(
+      "GPT",
+      "merge",
+      1,
+      questions,
+      { drafts: { GPT: drafts[0].result.answer, Claude: drafts[1].result.answer } },
+      { handOver: true },
+    );
+    if (!merged.answer.summary.trim()) throw new Error("합친 문서가 비어 있습니다.");
+    document = addVersion(p, "GPT", "merge", 1, merged);
+    merge(p, [{ actor: "GPT", result: { ...merged, observedUrls: unique([...draftUrls, ...merged.observedUrls]) } }], 1);
+  }
   let lowNovelty = 0;
   // Claude edits the GPT-merged document first so the aggregator is not also the first reviewer.
   const order: Actor[] = ["Claude", "GPT"];
@@ -769,8 +797,9 @@ async function coDraftRounds({ p, call, pair, checkpoint, record }: EngineTools)
     p.rounds.push(rr);
     const turns: { actor: Actor; result: Result }[] = [];
     const roundStartText = document.markdown;
-    const skip = skipper(p, rr, order.length);
-    for (const actor of order) {
+    const live = order.filter((a) => !p.limited?.[a]);
+    const skip = skipper(p, rr, live.length);
+    for (const actor of live) {
       checkpoint("revise", round, `라운드 ${round} · ${actor} 수정 차례`, [actor]);
       const result = await skip(actor, () => call(actor, "revise", round, questions, {
         document: document.markdown,
@@ -825,7 +854,7 @@ async function coDraftRounds({ p, call, pair, checkpoint, record }: EngineTools)
     if (p.stopReason) break;
   }
   // A different model from the aggregator writes the final report (judge bias).
-  return { synthesizer: "Claude", document: document.markdown };
+  return { synthesizer: p.limited?.Claude ? "GPT" : "Claude", document: document.markdown };
 }
 
 function researchMap(p: Project) {
@@ -871,8 +900,9 @@ async function relayRounds({ p, call, checkpoint, record }: EngineTools): Promis
     p.rounds.push(rr);
     const turns: { actor: Actor; result: Result }[] = [];
     let newItems = 0;
-    const skip = skipper(p, rr, order.length);
-    for (const actor of order) {
+    const live = order.filter((a) => !p.limited?.[a]);
+    const skip = skipper(p, rr, live.length);
+    for (const actor of live) {
       checkpoint("explore", round, `라운드 ${round} · ${actor} 탐색 차례`, [actor]);
       const result = await skip(actor, () => call(actor, "explore", round, p.questions, {
         previousTurn: previous
@@ -1063,11 +1093,64 @@ function skipper(p: Project, rr: Round, turnsPerRound: number) {
     try {
       return await run();
     } catch (error) {
-      if (!isTimeout(error) || isCancelRequested(p.id)) throw error;
+      const limited = canHandOver(p, actor, error);
+      if ((!isTimeout(error) && !limited) || isCancelRequested(p.id)) throw error;
+      if (limited) markLimited(p, actor, error);
       rr.skipped = [...(rr.skipped ?? []), actor];
       if (rr.skipped.length >= turnsPerRound) throw error;
-      p.stage = `라운드 ${rr.number} · ${actor} 차례가 응답하지 않아 건너뛰고 계속해요`;
+      p.stage = limited
+        ? `라운드 ${rr.number} · ${actor} 사용량 한도 · ${otherActor(actor)}가 혼자 이어가요`
+        : `라운드 ${rr.number} · ${actor} 차례가 응답하지 않아 건너뛰고 계속해요`;
       return undefined;
     }
   };
+}
+
+/** The other model; research always has exactly two. */
+export function otherActor(actor: Actor): Actor {
+  return actor === "GPT" ? "Claude" : "GPT";
+}
+
+/**
+ * True when this failure is "the account ran out of usage" and the run may go
+ * on with the other model: the project allows it and the peer still has usage.
+ */
+export function canHandOver(p: Project, actor: Actor, error: unknown) {
+  return isLimit(error) && p.soloOnLimit !== false && !p.limited?.[otherActor(actor)];
+}
+
+export function markLimited(p: Project, actor: Actor, error: unknown) {
+  p.limited = {
+    ...p.limited,
+    [actor]: {
+      at: new Date().toISOString(),
+      note: error instanceof Error ? error.message : "사용량 한도에 도달했어요",
+    },
+  };
+}
+
+/** Thrown to skip the optional report edit when no model is free for it. */
+class SkipEdit extends Error {}
+
+/**
+ * Runs both models for a stage; if one is out of usage and the project allows
+ * going solo, the round continues with whoever answered.
+ */
+async function bothOrOne(
+  p: Project,
+  turns: { actor: Actor; run: () => Promise<Result> }[],
+): Promise<{ actor: Actor; result: Result }[]> {
+  const settled = await Promise.allSettled(turns.map((t) => t.run()));
+  const done: { actor: Actor; result: Result }[] = [];
+  let failure: unknown;
+  settled.forEach((outcome, i) => {
+    if (outcome.status === "fulfilled") done.push({ actor: turns[i].actor, result: outcome.value });
+    else failure = outcome.reason;
+  });
+  if (done.length === turns.length) return done;
+  const missing = turns.find((t) => !done.some((d) => d.actor === t.actor))!;
+  if (!done.length || !canHandOver(p, missing.actor, failure)) throw failure;
+  markLimited(p, missing.actor, failure);
+  p.stage = `${missing.actor} 사용량 한도 · ${done[0].actor} 혼자 이어가요`;
+  return done;
 }

@@ -104,3 +104,66 @@ test("other failures are not skipped", async () => {
   assert.equal(p.status, "failed");
   assert.equal(p.rounds[0].skipped, undefined);
 });
+
+const limitError = () => new CliFailure("claude", "limit", "구독 사용량 한도");
+
+test("co-draft: when one account runs out of usage the other keeps the research going", async () => {
+  const p = create({ ...input, strategy: "codraft", maxRounds: 3, minRounds: 2 });
+  const seen: Request[] = [];
+  await run(p, async (r: Request) => {
+    seen.push(r);
+    if (r.actor === "Claude") throw limitError();
+    return mock(r);
+  }, () => save(p));
+  assert.equal(p.status, "complete", p.error);
+  assert.ok(p.limited?.Claude, "the limited model is recorded");
+  assert.match(p.limited!.Claude!.note, /한도/);
+  assert.ok(!seen.some((r) => r.actor === "Claude" && r.stage === "revise"), "no further Claude turns");
+  assert.ok(seen.some((r) => r.actor === "GPT" && r.stage === "revise"));
+  assert.ok(!seen.some((r) => r.stage === "merge"), "one draft needs no merge");
+  assert.equal(seen.find((r) => r.stage === "synthesis")?.actor, "GPT", "the free model writes the report");
+  assert.ok(p.report);
+  assert.ok(p.documents!.length >= 2, "the single draft became the shared document");
+});
+
+test("relay: a limited model drops out and the rounds continue", async () => {
+  const p = create({ ...input, strategy: "relay", maxRounds: 2, minRounds: 1 });
+  const seen: Request[] = [];
+  await run(p, async (r: Request) => {
+    seen.push(r);
+    if (r.actor === "GPT" && r.stage === "explore") throw limitError();
+    return mock(r);
+  }, () => save(p));
+  assert.equal(p.status, "complete", p.error);
+  assert.ok(p.limited?.GPT);
+  assert.equal(seen.filter((r) => r.actor === "GPT" && r.stage === "explore").length, 1, "GPT is asked once, then dropped");
+  assert.ok(seen.filter((r) => r.actor === "Claude" && r.stage === "explore").length >= 2);
+  assert.equal(seen.find((r) => r.stage === "synthesis")?.actor, "Claude", "the report hands over to the free model");
+});
+
+test("single-model stages hand over, and the run stops when both accounts are out", async () => {
+  const plan = create({ ...input, strategy: "codraft", maxRounds: 1, minRounds: 1 });
+  const seen: Request[] = [];
+  await run(plan, async (r: Request) => {
+    seen.push(r);
+    if (r.actor === "GPT" && r.stage === "plan") throw limitError();
+    return mock(r);
+  }, () => save(plan));
+  assert.equal(plan.status, "complete", plan.error);
+  assert.equal(seen.filter((r) => r.stage === "plan").map((r) => r.actor).join(","), "GPT,Claude", "the plan hands over");
+  assert.ok(plan.limited?.GPT);
+
+  const both = create({ ...input, strategy: "codraft", maxRounds: 2, minRounds: 1 });
+  await run(both, async () => { throw limitError(); }, () => save(both));
+  assert.equal(both.status, "failed");
+  assert.match(both.error!, /한도/);
+
+  const off = create({ ...input, strategy: "codraft", maxRounds: 2, minRounds: 1 });
+  off.soloOnLimit = false;
+  await run(off, async (r: Request) => {
+    if (r.actor === "Claude") throw limitError();
+    return mock(r);
+  }, () => save(off));
+  assert.equal(off.status, "failed", "the switch keeps the old behaviour");
+  assert.equal(off.limited, undefined);
+});

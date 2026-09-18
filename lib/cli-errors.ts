@@ -144,6 +144,11 @@ export function effortTimeFactor(effort?: string) {
   return effort === "max" ? 3 : effort === "xhigh" ? 2 : 1;
 }
 
+/** The account ran out of subscription usage; waiting or the other model is the way on. */
+export function isLimit(error: unknown) {
+  return error instanceof CliFailure && error.kind === "limit";
+}
+
 /** A time-limit failure: the call already burned its whole budget. */
 export function isTimeout(error: unknown) {
   if (error instanceof CliFailure) return error.kind === "timeout";

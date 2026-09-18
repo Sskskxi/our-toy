@@ -241,6 +241,10 @@ export type Project = Omit<Input, "mode" | "strategy"> & {
   followUps?: FollowUp[];
   /** Rewrite the report after each follow-up answer (default true; stored beside the project). */
   reportSync?: boolean;
+  /** Keep going with the other model when one account hits its usage limit (default true). */
+  soloOnLimit?: boolean;
+  /** Models that ran out of usage during this run, with the time and reason. */
+  limited?: Partial<Record<Actor, { at: string; note: string }>>;
   error?: string;
   tokens: number;
   providerSessions: Partial<Record<Actor, string>>;

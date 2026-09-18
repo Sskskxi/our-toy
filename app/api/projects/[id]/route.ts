@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rejectUnsafe } from "@/lib/http";
-import { get, projectVersion, remove, setReportSync, setTitle } from "@/lib/store";
+import { get, projectVersion, remove, setReportSync, setSoloOnLimit, setTitle } from "@/lib/store";
 import { inboxVersion, withPendingInterventions } from "@/lib/interventions";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,20 +49,28 @@ export async function PATCH(
     const raw = await req.text();
     if (raw.length > 2000)
       return NextResponse.json({ error: "요청이 너무 깁니다." }, { status: 413 });
-    const { title, reportSync } = JSON.parse(raw) as { title?: unknown; reportSync?: unknown };
+    const { title, reportSync, soloOnLimit } = JSON.parse(raw) as {
+      title?: unknown;
+      reportSync?: unknown;
+      soloOnLimit?: unknown;
+    };
     if (title !== undefined && (typeof title !== "string" || title.length > 120))
       return NextResponse.json({ error: "제목은 120자 이하 문자열이어야 합니다." }, { status: 400 });
     if (reportSync !== undefined && typeof reportSync !== "boolean")
       return NextResponse.json({ error: "보고서 갱신 설정은 true 또는 false여야 해요." }, { status: 400 });
-    if (title === undefined && reportSync === undefined)
+    if (soloOnLimit !== undefined && typeof soloOnLimit !== "boolean")
+      return NextResponse.json({ error: "한 모델로 계속하기 설정은 true 또는 false여야 해요." }, { status: 400 });
+    if (title === undefined && reportSync === undefined && soloOnLimit === undefined)
       return NextResponse.json({ error: "바꿀 항목이 없어요." }, { status: 400 });
     if (!get(id)) return NextResponse.json({ error: "프로젝트가 없습니다." }, { status: 404 });
     if (typeof title === "string") setTitle(id, title.replace(/\s+/g, " "));
     if (typeof reportSync === "boolean") setReportSync(id, reportSync);
+    if (typeof soloOnLimit === "boolean") setSoloOnLimit(id, soloOnLimit);
     return NextResponse.json({
       ok: true,
       ...(typeof title === "string" ? { title: title.trim() || undefined } : {}),
       ...(typeof reportSync === "boolean" ? { reportSync } : {}),
+      ...(typeof soloOnLimit === "boolean" ? { soloOnLimit } : {}),
     });
   } catch {
     return NextResponse.json({ error: "설정을 바꾸지 못했습니다." }, { status: 400 });

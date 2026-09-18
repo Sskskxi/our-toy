@@ -42,6 +42,24 @@ export function setReportSync(id: string, on: boolean) {
   fs.renameSync(temp, target);
 }
 
+function soloFile(id: string) {
+  return file(id).replace(/\.json$/, ".solo");
+}
+export function readSoloOnLimit(id: string) {
+  try {
+    return fs.readFileSync(soloFile(id), "utf8").trim() !== "off";
+  } catch {
+    return true;
+  }
+}
+export function setSoloOnLimit(id: string, on: boolean) {
+  const target = soloFile(id);
+  if (on) return fs.rmSync(target, { force: true });
+  const temp = target + "." + randomUUID() + ".tmp";
+  fs.writeFileSync(temp, "off", { mode: 0o600 });
+  fs.renameSync(temp, target);
+}
+
 export function setTitle(id: string, title: string) {
   const target = titleFile(id);
   if (!title.trim()) return fs.rmSync(target, { force: true });
@@ -53,14 +71,14 @@ export function setTitle(id: string, title: string) {
 /** Remove a project and its side files. Callers must check it is idle. */
 export function remove(id: string) {
   const base = file(id).replace(/\.json$/, "");
-  for (const ext of [".json", ".inbox.json", ".title", ".reportsync", ".cancel"])
+  for (const ext of [".json", ".inbox.json", ".title", ".reportsync", ".solo", ".cancel"])
     fs.rmSync(base + ext, { force: true });
   fs.rmSync(path.join(dataDir(), ".sessions", id), { recursive: true, force: true });
 }
 
 export function save(p: Project) {
   p.updatedAt = new Date().toISOString();
-  const { title: _title, reportSync: _sync, ...stored } = p;
+  const { title: _title, reportSync: _sync, soloOnLimit: _solo, ...stored } = p;
   const target = file(p.id),
     temp = target + "." + randomUUID() + ".tmp";
   // Compact JSON: projects are rewritten after every call and can reach
@@ -82,6 +100,7 @@ export function get(id: string): Project | undefined {
   }
   p.title = readTitle(id);
   p.reportSync = readReportSync(id);
+  p.soloOnLimit = readSoloOnLimit(id);
   p.providerSessions ??= {};
   p.conversation ??= {
     id: randomUUID(),
