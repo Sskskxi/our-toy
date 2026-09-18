@@ -14,7 +14,15 @@ export type PdfText = {
 // exactly as with .txt attachments. pdf.js runs in a worker without XFA forms or
 // scripting; v6 has no eval-based font path (the CVE-2024-4367 vector).
 export async function extractPdfText(file: File, maxChars: number): Promise<PdfText> {
-  const pdfjs = await import("pdfjs-dist");
+  // The reader is loaded on demand, so a page left open across an app update
+  // asks for files the new build no longer has. Say so instead of failing with
+  // a raw "undefined is not a function".
+  let pdfjs: typeof import("pdfjs-dist");
+  try {
+    pdfjs = await import("pdfjs-dist");
+  } catch {
+    throw new Error("새 버전이 적용됐어요. 페이지를 새로고침한 뒤 PDF를 다시 올려 주세요.");
+  }
   pdfjs.GlobalWorkerOptions.workerSrc = new URL(
     "pdfjs-dist/build/pdf.worker.min.mjs",
     import.meta.url,
