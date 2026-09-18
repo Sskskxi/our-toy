@@ -1,7 +1,8 @@
 "use client";
-import { memo, useEffect, useRef, useState } from "react";
+import { Fragment, memo, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { ClaudeLogo, OpenAILogo } from "./logos";
 import type {
   Actor,
   Call,
@@ -25,6 +26,7 @@ export const stageLabels: Record<string, string> = {
   rebuttal: "반박 · 수정",
   contradictions: "모순 확인",
   synthesis: "최종 종합",
+  "report-edit": "보고서 결론 다듬기",
   conversation: "후속 대화",
   "conversation-synthesis": "공동 정리",
 };
@@ -39,6 +41,7 @@ const stageHints: Record<string, string> = {
   rebuttal: "받은 비판에 답하고 주장을 고치거나 거둡니다.",
   contradictions: "원문을 확인한 주장들 가운데 동시에 참일 수 없는 쌍을 찾아요.",
   synthesis: "원장과 남은 질문을 모아 보고서를 씁니다.",
+  "report-edit": "다른 모델이 결론이 앞에 오도록 보고서를 한 번 더 다듬어요.",
 };
 
 // Markdown parsing is the heaviest render work; skip it when the text is unchanged.
@@ -249,83 +252,39 @@ type FieldProps = {
   required?: boolean;
   disabled?: boolean;
   compact?: boolean;
+  /** Keep the label for screen readers only, when the screen title already says it. */
+  hideLabel?: boolean;
   onSubmitShortcut?: () => void;
 };
 
+/** Grows with its content up to this height, then scrolls. */
+const FIELD_MAX_PX = 320;
+const COMPACT_MAX_PX = 220;
+
+// Markdown is accepted as typed and rendered later; the box itself stays a plain,
+// self-sizing text area with no formatting chrome.
 export function MarkdownField(props: FieldProps) {
-  const [preview, setPreview] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
-  // Wrap the selection, or prefix the current line, with Markdown syntax.
-  function format(before: string, after = "", linePrefix = false) {
+  useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const { selectionStart: s, selectionEnd: e, value } = el;
-    let next: string, from: number, to: number;
-    if (linePrefix) {
-      const lineStart = value.lastIndexOf("\n", s - 1) + 1;
-      next = value.slice(0, lineStart) + before + value.slice(lineStart);
-      from = s + before.length;
-      to = e + before.length;
-    } else {
-      const selected = value.slice(s, e) || "텍스트";
-      next = value.slice(0, s) + before + selected + after + value.slice(e);
-      from = s + before.length;
-      to = from + selected.length;
-    }
-    if (props.maxLength && next.length > props.maxLength) return;
-    props.onChange(next);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(from, to);
-    });
-  }
-  const tools: [string, string, () => void][] = [
-    ["굵게", "B", () => format("**", "**")],
-    ["제목", "H", () => format("### ", "", true)],
-    ["목록", "• 목록", () => format("- ", "", true)],
-    ["인용", "❝ 인용", () => format("> ", "", true)],
-    ["코드", "</>", () => format("`", "`")],
-  ];
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, props.compact ? COMPACT_MAX_PX : FIELD_MAX_PX)}px`;
+  }, [props.value, props.compact]);
   return (
     <div className={`mdField ${props.compact ? "compact" : ""}`}>
-      <div className="mdBar">
-        <label htmlFor={props.id}>{props.label}</label>
-        <div className="mdTabs" role="tablist" aria-label={`${props.label} 보기`}>
-          {[false, true].map((mode) => (
-            <button
-              key={String(mode)}
-              type="button"
-              role="tab"
-              aria-selected={preview === mode}
-              className={preview === mode ? "active" : ""}
-              onClick={() => setPreview(mode)}
-            >
-              {mode ? "미리보기" : "작성"}
-            </button>
-          ))}
-        </div>
-      </div>
-      {!preview && (
-        <div className="mdToolbar" aria-label="Markdown 서식">
-          {tools.map(([title, text, run]) => (
-            <button
-              key={title}
-              type="button"
-              onClick={run}
-              disabled={props.disabled}
-              title={title}
-              aria-label={title}
-            >
-              {text}
-            </button>
-          ))}
-          <span>Markdown 지원{props.onSubmitShortcut ? " · ⌘/Ctrl+Enter 전송" : ""}</span>
-        </div>
+      <label htmlFor={props.id} className={props.hideLabel ? "srOnly" : "mdLabel"}>
+        {props.label}
+      </label>
+      {props.maxLength && props.value.length > props.maxLength * 0.6 && (
+        <span className={`fieldCount ${props.value.length > props.maxLength * 0.95 ? "near" : ""}`}>
+          {props.value.length.toLocaleString()} / {props.maxLength.toLocaleString()}자
+        </span>
       )}
       <textarea
         ref={ref}
         id={props.id}
-        hidden={preview}
+        rows={props.compact ? 1 : 3}
         value={props.value}
         onChange={(e) => props.onChange(e.target.value)}
         onKeyDown={(e) => {
@@ -337,18 +296,9 @@ export function MarkdownField(props: FieldProps) {
         placeholder={props.placeholder}
         maxLength={props.maxLength}
         minLength={props.minLength}
-        required={props.required && !preview}
+        required={props.required}
         disabled={props.disabled}
       />
-      {preview && (
-        <div className="mdPreview">
-          {props.value.trim() ? (
-            <RichMarkdown>{props.value}</RichMarkdown>
-          ) : (
-            <p className="help">미리볼 내용이 없습니다.</p>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -384,7 +334,7 @@ export function ModelPicker({
           onChange({ ...value, [actor]: { ...choice, ...patch } } as ModelChoices);
         return (
           <div className="modelRow" key={actor}>
-            <span className={`avatar ${actor.toLowerCase()}`}>{actor === "GPT" ? "G" : "C"}</span>
+            <span className={`avatar brandLogo ${actor.toLowerCase()}`}>{actor === "GPT" ? <OpenAILogo size={16} /> : <ClaudeLogo size={16} />}</span>
             <label>
               {actor} 모델
               <select
@@ -493,6 +443,8 @@ function Confidence({ value }: { value: number }) {
 // Finished calls never change, so a bubble re-renders only when its call moves.
 const Bubble = memo(BubbleView, (a, b) =>
   a.actor === b.actor &&
+  a.skipped === b.skipped &&
+  a.call?.progress?.lastAt === b.call?.progress?.lastAt &&
   a.call?.status === b.call?.status &&
   a.call?.startedAt === b.call?.startedAt &&
   a.call?.finishedAt === b.call?.finishedAt &&
@@ -500,14 +452,34 @@ const Bubble = memo(BubbleView, (a, b) =>
   a.call?.error === b.call?.error,
 );
 
+/** "검색 3회 · 마지막 응답 2분 전"; a quiet stretch is normal thinking, not an error. */
+function CallProgressLine({ progress }: { progress?: Call["progress"] }) {
+  const now = useNow(true);
+  if (!progress) return <p className="progressLine">응답을 기다리고 있어요</p>;
+  const idleMin = Math.max(0, Math.floor((now - Date.parse(progress.lastAt)) / 60000));
+  return (
+    <p className="progressLine">
+      {progress.searches > 0 && `검색 ${progress.searches}회 · `}
+      {idleMin >= 5
+        ? `생각 중이에요 · 마지막 응답 ${idleMin}분 전`
+        : idleMin > 0
+          ? `마지막 응답 ${idleMin}분 전`
+          : "방금 응답했어요"}
+    </p>
+  );
+}
+
 function BubbleView({
   call,
   actor,
   onOpenReport,
+  skipped,
 }: {
   call?: Call;
   actor: Actor;
   onOpenReport?: () => void;
+  /** The engine skipped this stalled turn and kept going. */
+  skipped?: boolean;
 }) {
   const cls = `bubble ${actor.toLowerCase()}`;
   if (!call)
@@ -527,7 +499,7 @@ function BubbleView({
   return (
     <article className={cls}>
       <div className="bubbleHead">
-        <span className={`avatar ${actor.toLowerCase()}`}>{actor === "GPT" ? "G" : "C"}</span>
+        <span className={`avatar brandLogo ${actor.toLowerCase()}`}>{actor === "GPT" ? <OpenAILogo size={16} /> : <ClaudeLogo size={16} />}</span>
         <span>
           <b>{actor}</b>
           <small>
@@ -542,11 +514,13 @@ function BubbleView({
             )}
           </small>
         </span>
-        <span className={`callStatus ${call.status}`}>
+        <span className={`callStatus ${skipped && call.status === "failed" ? "skipped" : call.status}`}>
           {call.status === "running"
             ? "작성 중"
             : call.status === "failed"
-              ? "실패"
+              ? skipped
+                ? "건너뜀"
+                : "실패"
               : call.replayed
                 ? "저장본 재생"
                 : "완료"}{" "}
@@ -554,13 +528,25 @@ function BubbleView({
         </span>
       </div>
       {call.status === "running" && (
-        <div className="typing" role="status" aria-label={`${actor} 응답 작성 중`}>
-          <i />
-          <i />
-          <i />
+        <div className="runningInfo" role="status" aria-label={`${actor} 응답 작성 중`}>
+          <div className="typing" aria-hidden>
+            <i />
+            <i />
+            <i />
+          </div>
+          <CallProgressLine progress={call.progress} />
         </div>
       )}
-      {call.error && <p className="error">{call.error}</p>}
+      {call.error &&
+        (skipped ? (
+          <p className="skippedNote">
+            {/^.*한도/.test(call.error)
+              ? "사용량 한도라 이번 차례는 건너뛰었어요 · 한도가 풀린 뒤 이어서 실행하면 다시 해요"
+              : "응답이 없어 이번 차례는 건너뛰었어요 · 이어서 실행하면 다시 시도해요"}
+          </p>
+        ) : (
+          <p className="error">{call.error}</p>
+        ))}
       {a && (
         <>
           {a.questions.length > 0 && call.stage !== "explore" && (
@@ -770,11 +756,12 @@ export function DebateThread({
   const pending = notes.filter((n) => notePending(n) && !n.appliedAt);
   const planCall = calls.find((c) => c.stage === "plan");
   const synthesisCall = calls.find((c) => c.stage === "synthesis");
+  const editCall = calls.find((c) => c.stage === "report-edit");
   const chips = [
     ["all", "전체"],
     ...(planCall ? [["plan", "준비"]] : []),
     ...project.rounds.map((r) => [`r${r.number}`, `라운드 ${r.number}`]),
-    ...(synthesisCall ? [["synthesis", "종합"]] : []),
+    ...(synthesisCall || editCall ? [["synthesis", "종합"]] : []),
   ];
   const show = (key: string) => filter === "all" || filter === key;
   const pick = (stage: Stage, round: number, actor: Actor) =>
@@ -790,6 +777,10 @@ export function DebateThread({
     </div>
   );
 
+  // A stalled turn the engine skipped reads as neutral unless the whole run failed.
+  const wasSkipped = (round: number, actor: Actor) =>
+    project.status !== "failed" &&
+    Boolean(project.rounds.find((r) => r.number === round)?.skipped?.includes(actor));
   // Side-by-side: both models work on the same step at once.
   const parallelBlock = (stage: Stage, round: number) => {
     const gpt = pick(stage, round, "GPT"),
@@ -803,8 +794,8 @@ export function DebateThread({
           <>
             {head(stage)}
             <div className="stageGrid">
-              <Bubble call={gpt} actor="GPT" />
-              <Bubble call={claude} actor="Claude" />
+              <Bubble call={gpt} actor="GPT" skipped={wasSkipped(round, "GPT")} />
+              <Bubble call={claude} actor="Claude" skipped={wasSkipped(round, "Claude")} />
             </div>
           </>
         )}
@@ -829,7 +820,7 @@ export function DebateThread({
           <>
             {title && head(stage)}
             <div className={`turnRow ${actor.toLowerCase()}`}>
-              <Bubble call={call} actor={actor} onOpenReport={onOpenReport} />
+              <Bubble call={call} actor={actor} onOpenReport={onOpenReport} skipped={wasSkipped(round, actor)} />
             </div>
           </>
         )}
@@ -863,7 +854,7 @@ export function DebateThread({
       {(planCall || notes.some((n) => n.appliedStage === "plan")) && show("plan") && (
         <div className="roundBlock">
           <div className="roundHead">
-            <span>PREP</span>
+            <span>준비</span>
             <b>연구 준비</b>
           </div>
           {turnBlock("plan", 0, "GPT")}
@@ -871,10 +862,20 @@ export function DebateThread({
       )}
       {project.rounds.map((r) => {
         if (!show(`r${r.number}`)) return null;
+        // A follow-up question reopened the research right before this round.
+        const followUp = project.followUps?.find((f) => f.fromRound + 1 === r.number);
         return (
-          <div className="roundBlock" key={r.number}>
+          <Fragment key={r.number}>
+          {followUp && (
+            <div className="followUpDivider" role="separator">
+              <span>후속 질문</span>
+              <b>{followUp.question}</b>
+              <Stamp at={followUp.createdAt} />
+            </div>
+          )}
+          <div className="roundBlock">
             <div className="roundHead">
-              <span>ROUND {String(r.number).padStart(2, "0")}</span>
+              <span>라운드 {r.number}</span>
               <b>{codraft ? "공동 문서 다듬기" : relay ? "탐색 릴레이" : `질문 ${r.questions.length}개`}</b>
               <em>
                 {r.novelty === undefined
@@ -914,6 +915,7 @@ export function DebateThread({
               debateStages.map((stage) => parallelBlock(stage, r.number))
             )}
           </div>
+          </Fragment>
         );
       })}
       {codraft && !project.rounds.length && show("all") && (
@@ -922,13 +924,14 @@ export function DebateThread({
           {turnBlock("merge", 1, "GPT")}
         </div>
       )}
-      {synthesisCall && show("synthesis") && (
+      {(synthesisCall || editCall) && show("synthesis") && (
         <div className="roundBlock">
           <div className="roundHead">
-            <span>FINAL</span>
+            <span>마무리</span>
             <b>최종 종합</b>
           </div>
-          {turnBlock("synthesis", synthesisCall.round, synthesisCall.actor)}
+          {synthesisCall && turnBlock("synthesis", synthesisCall.round, synthesisCall.actor)}
+          {editCall && turnBlock("report-edit", editCall.round, editCall.actor)}
         </div>
       )}
       {pending.length > 0 && filter === "all" && (
@@ -1022,6 +1025,53 @@ export function DocumentPanel({ project }: { project: Project }) {
   );
 }
 
+/** Earlier reports kept by "보고서 다시 쓰기"; Markdown renders only when opened. */
+export function ReportHistory({
+  history,
+  followUps,
+}: {
+  history?: { createdAt: string; markdown: string }[];
+  followUps?: { question: string; createdAt: string }[];
+}) {
+  if (!history?.length) return null;
+  return (
+    <details className="foldPanel reportHistory">
+      <summary>
+        이전 보고서
+        <span>{history.length}개</span>
+      </summary>
+      <div className="reportVersions">
+        {[...history].reverse().map((h, i) => (
+          <ReportVersion
+            key={h.createdAt + i}
+            createdAt={h.createdAt}
+            markdown={h.markdown}
+            // The first follow-up asked after this report replaced it.
+            before={followUps?.find((f) => f.createdAt >= h.createdAt)?.question}
+          />
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function ReportVersion({ createdAt, markdown, before }: { createdAt: string; markdown: string; before?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className="reportVersion" onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>
+        <Stamp at={createdAt} /> 보고서
+        <span>{before ? `후속 질문 "${firstLine(before).slice(0, 40)}" 전` : `${markdown.length.toLocaleString()}자`}</span>
+      </summary>
+      {open && (
+        <article className="report">
+          <RichMarkdown>{markdown}</RichMarkdown>
+        </article>
+      )}
+    </details>
+  );
+}
+
 export function KeyInsights({ project }: { project: Project }) {
   const byConf = [...project.claims].sort((a, b) => b.confidence - a.confidence);
   const reportKey = project.report ? splitKeyPoints(project.report).key : "";
@@ -1046,6 +1096,9 @@ export function KeyInsights({ project }: { project: Project }) {
       )}
     </div>
   );
+  const agreed = byConf.filter((c) => c.actors.length > 1 && c.status !== "contested");
+  const contested = byConf.filter((c) => c.status === "contested");
+  const needs = byConf.filter((c) => c.status === "needs-evidence");
   return (
     <section className="insights" aria-label="한눈에 보기">
       {reportKey && (
@@ -1055,31 +1108,40 @@ export function KeyInsights({ project }: { project: Project }) {
         </div>
       )}
       {byConf.length > 0 && (
+        // The three claim columns are long; keep them one click away.
+        <details className="foldPanel">
+          <summary>
+            주장 정리
+            <span>
+              합의 {agreed.length} · 논쟁 {contested.length} · 근거 필요 {needs.length}
+            </span>
+          </summary>
         <div className="insightGrid">
           {column(
             "두 모델 합의",
             "agreed",
-            byConf.filter((c) => c.actors.length > 1 && c.status !== "contested"),
-            "아직 두 모델이 함께 낸 주장이 없습니다.",
+            agreed,
+            "아직 두 모델이 함께 낸 주장이 없어요.",
             (c) => `확신 ${Math.round(c.confidence * 100)}% · 근거 ${c.sources.length}개`,
           )}
           {column(
             "논쟁 중",
             "contested",
-            byConf.filter((c) => c.status === "contested"),
-            "반론이 붙은 주장이 없습니다.",
+            contested,
+            "반론이 붙은 주장이 없어요.",
             (c) => (c.objections[0] ? `반론: ${c.objections[0]}` : c.actors.join(" + ")),
           )}
           {column(
             "근거 필요",
             "needs",
-            byConf.filter((c) => c.status === "needs-evidence"),
-            "모든 주장에 검색 근거가 연결됐습니다.",
+            needs,
+            "모든 주장에 검색 근거가 연결됐어요.",
             (c) => c.actors.join(" + "),
           )}
         </div>
+          <p className="help">모델끼리 합의했다고 사실이 확인된 건 아니에요.</p>
+        </details>
       )}
-      <p className="help">모델끼리 합의했다고 사실이 검증된 것은 아닙니다.</p>
     </section>
   );
 }
@@ -1130,26 +1192,24 @@ export function InterventionBox({
       }}
     >
       <div className="interventionHead">
-        <b>✋ 토론에 끼어들기</b>
-        <span>
-          진행 중인 호출이 끝나고 다음 단계가 시작될 때 전달됩니다. 방향 제시, 놓친 관점, 잘못된 전제
-          지적에 쓰세요. 모델은 이 메모를 근거로 인용하지 않습니다.
-        </span>
+        <b>방향 알려주기</b>
+        <span>지금 단계가 끝나면 다음 단계부터 반영돼요.</span>
       </div>
       <MarkdownField
         id="intervention"
-        label="개입 메모"
+        label="방향 메모"
+        hideLabel
         compact
         value={text}
         onChange={setText}
         maxLength={4000}
         disabled={busy}
-        placeholder={"예: ### 방향 수정\n- **비용 측면**을 더 조사해 주세요\n- 2024년 이전 자료는 제외"}
+        placeholder="예: 비용 측면을 더 조사해 주세요"
         onSubmitShortcut={() => void send()}
       />
       <div className="interventionActions">
         <label>
-          전달 대상
+          받는 모델
           <select
             value={target}
             onChange={(e) => setTarget(e.target.value as "both" | Actor)}
@@ -1160,9 +1220,9 @@ export function InterventionBox({
             <option value="Claude">Claude만</option>
           </select>
         </label>
-        {sent && <span role="status">접수됨 · 다음 단계에 반영됩니다</span>}
+        {sent && <span role="status">보냈어요. 다음 단계에 반영돼요.</span>}
         <button className="primary" disabled={busy || !text.trim()}>
-          {busy ? "보내는 중…" : "다음 단계에 반영 ↗"}
+          {busy ? "보내는 중…" : "보내기"}
         </button>
       </div>
     </form>

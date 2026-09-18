@@ -16,6 +16,7 @@ import {
   MarkdownField,
   ModelChips,
   ModelPicker,
+  ReportHistory,
   RichMarkdown,
   Stamp,
   UpdateButton,
@@ -260,6 +261,20 @@ function AutoResumeCountdown({ at }: { at: string }) {
   );
 }
 
+/** Readable preview of a Markdown answer: drop headings, emphasis, list marks and link URLs. */
+function plainPreview(md: string, max = 300) {
+  return md
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}(#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/gm, "")
+    .replace(/(\*\*|__|`|~~)/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+}
+
+/** Requests that want more research rather than a single chat answer. */
+const RESEARCH_ASK = /알아봐|찾아|조사|파고|더 봐|계속 해|계속해|이어서 해/;
+
 /** Turns rendered at first; older ones load on request so long chats stay light. */
 const TURN_PAGE = 20;
 /** Answers longer than this are folded when they are not among the latest turns. */
@@ -305,7 +320,10 @@ const ChatTurnView = memo(
           </div>
         )}
         {turn.answer && (
-          <div className={`chatMessage assistantBubble ${folded ? "folded" : ""}`}>
+          <div
+            // GPT answers sit left and Claude answers right, like the research thread.
+            className={`chatMessage assistantBubble ${turn.target === "both" ? "both" : turn.target.toLowerCase()} ${folded ? "folded" : ""}`}
+          >
             <small>
               {turn.target === "both" ? "공동 정리" : turn.target}
               {turn.status === "complete" && (
@@ -317,7 +335,7 @@ const ChatTurnView = memo(
             </small>
             {folded ? (
               // Skip Markdown parsing for folded answers; plain text is enough for a preview.
-              <p className="foldPreview">{turn.answer.slice(0, 400)}…</p>
+              <p className="foldPreview">{plainPreview(turn.answer)}…</p>
             ) : (
               <RichMarkdown>{turn.answer}</RichMarkdown>
             )}
@@ -398,9 +416,17 @@ export default function Page() {
   const [messageBusy, setMessageBusy] = useState(false);
   const [offline, setOffline] = useState(false);
   const [workerUp, setWorkerUp] = useState(true);
+  // The app restarted on new code while this tab still runs the old bundle.
+  const loadedBuild = useRef<string | undefined>(undefined);
+  const [staleBuild, setStaleBuild] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [search, setSearch] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
+  // Models and totals are reference info; the header shows one summary line.
+  const [showDetails, setShowDetails] = useState(false);
+  const [confirmRewrite, setConfirmRewrite] = useState(false);
+  const [askMode, setAskMode] = useState<"deep" | "quick">("deep");
+  const [deepRounds, setDeepRounds] = useState(2);
   const [actionBusy, setActionBusy] = useState(false);
   const [resumeModels, setResumeModels] = useState<ModelChoices>({});
   const [modelDefaults, setModelDefaults] = useState<ModelDefaults>();
@@ -411,18 +437,21 @@ export default function Page() {
     { name: string; text: string }[]
   >([]);
   const [reading, setReading] = useState(false);
-  async function attach(files: File[]) {
+  // Accepts a FileList or an array; older browsers and stale bundles pass either.
+  async function attach(files: ArrayLike<File> | null | undefined) {
+    const list = Array.from(files ?? []);
     setReading(true);
     setError("");
     try {
-      if (attachments.length + files.length > 5)
-        throw Error("파일은 최대 5개까지 첨부할 수 있습니다.");
+      if (!list.length) return;
+      if (attachments.length + list.length > 5)
+        throw Error("파일은 최대 5개까지 첨부할 수 있어요.");
       const added: { name: string; text: string }[] = [];
       const problems: string[] = [];
       const used = () =>
         referenceText.length +
         [...attachments, ...added].reduce((n, f) => n + f.text.length, 0);
-      for (const file of files) try {
+      for (const file of list) try {
         if (/\.pdf$/i.test(file.name)) {
           if (file.size > PDF_MAX_BYTES)
             throw Error(`${file.name}: PDF는 20MB 이하여야 합니다.`);
@@ -455,7 +484,8 @@ export default function Page() {
         added.push({ name: file.name, text });
       } catch (fileError) {
         // One unreadable file must not discard the others in the same batch.
-        problems.push(fileError instanceof Error ? fileError.message : `${file.name}: 읽지 못했어요.`);
+        const why = fileError instanceof Error ? fileError.message : String(fileError);
+        problems.push(why.includes(file.name) ? why : `${file.name}: ${why || "읽지 못했어요."}`);
       }
       if (used() > 60000)
         throw Error("참고 텍스트와 파일 내용은 합계 60,000자까지 가능합니다.");
@@ -630,6 +660,28 @@ export default function Page() {
       clearTimeout(timer);
     };
   }, [id, view, authNonce]);
+  // A tab on an old bundle can break before the next poll; offer the reload then.
+  useEffect(() => {
+    const stale =
+      /ChunkLoadError|Loading chunk|Importing a module script failed|is not a function|undefined is not/i;
+    async function check(message: string) {
+      if (!stale.test(message) || staleBuild) return;
+      try {
+        const res = await fetch("/api/projects", { cache: "no-store" });
+        const data = await res.json();
+        if (!loadedBuild.current || (data.build && data.build !== loadedBuild.current)) setStaleBuild(true);
+      } catch {}
+    }
+    const onError = (e: ErrorEvent) => void check(e.message ?? "");
+    const onRejection = (e: PromiseRejectionEvent) =>
+      void check(e.reason instanceof Error ? e.reason.message : String(e.reason ?? ""));
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onRejection);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRejection);
+    };
+  }, [staleBuild]);
   async function accountAction(
     provider: "codex" | "claude",
     action: AuthAction,
@@ -703,6 +755,10 @@ export default function Page() {
         if (alive) {
           setOffline(false);
           setWorkerUp(data.workerAlive !== false);
+          if (data.build) {
+            loadedBuild.current ??= data.build;
+            if (data.build !== loadedBuild.current) setStaleBuild(true);
+          }
           // Replacing an identical list would re-render the whole project view.
           if (JSON.stringify(data.projects) !== JSON.stringify(projectsRef.current))
             setProjects(data.projects);
@@ -884,6 +940,30 @@ export default function Page() {
         current ? { ...current, status: "queued", stage: "이어서 실행 대기", error: undefined } : current,
       );
   }
+  // Shared per project, so it comes from the project record, not this browser.
+  async function toggleSetting(key: "reportSync" | "soloOnLimit", value: boolean) {
+    if (!project) return;
+    setProject((c) => (c ? { ...c, [key]: value } : c));
+    const data = await projectAction("PATCH", "", { [key]: value });
+    if (!data) setProject((c) => (c ? { ...c, [key]: !value } : c));
+  }
+  async function rewriteReport() {
+    if (!project) return;
+    const data = await projectAction("POST", "/rewrite", {});
+    setConfirmRewrite(false);
+    if (data)
+      setProject((c) =>
+        c
+          ? {
+              ...c,
+              status: "queued",
+              stage: "보고서 다시 쓰기 대기",
+              reportHistory: [...(c.reportHistory ?? []), { createdAt: c.updatedAt, markdown: c.report ?? "" }].slice(-5),
+              report: undefined,
+            }
+          : c,
+      );
+  }
   async function cancelAutoResume() {
     if (!project) return;
     if (await projectAction("DELETE", "/auto-resume"))
@@ -1005,21 +1085,89 @@ export default function Page() {
     "근거가 약한 주장만 골라서 다시 확인해 줘",
     "다음에 더 조사하면 좋을 것들을 정리해 줘",
   ];
+  // After a report, a question can reopen the research instead of getting a quick chat answer.
+  const canDeepen = Boolean(
+    project &&
+      project.status === "complete" &&
+      project.report &&
+      project.mode !== "live" &&
+      !project.conversation.turns.some((t) => t.status === "running" || t.status === "queued"),
+  );
+  const deep = canDeepen && askMode === "deep";
+  // A finished chat answer queues a report rewrite; the old report stays until it lands.
+  const reportSyncing = Boolean(
+    project &&
+      (project.status === "queued" || project.status === "running") &&
+      project.stage?.startsWith("대화 내용을 반영해"),
+  );
+  async function deepenResearch() {
+    if (!project || !message.trim()) return;
+    const data = await projectAction("POST", "/deepen", { question: message.trim(), rounds: deepRounds });
+    if (!data) return;
+    setMessage("");
+    saveLocal(`chat:${project.id}`, "");
+    setProject((c) =>
+      c
+        ? {
+            ...c,
+            status: "queued",
+            stage: "후속 심층 조사 대기",
+            followUps: [...(c.followUps ?? []), data.followUp],
+          }
+        : c,
+    );
+    setTab("overview");
+  }
   const composer = project && (
     <form
-      className="chatComposer"
+      // Dock to the bottom only once there is a conversation to scroll past.
+      className={`chatComposer ${tab === "conversation" && chatTurns.length > 0 ? "docked" : "inline"}`}
       onSubmit={(e) => {
+        if (staleBuild) {
+          e.preventDefault();
+          location.reload();
+          return;
+        }
+        if (deep) {
+          e.preventDefault();
+          void deepenResearch();
+          return;
+        }
         void sendMessage(e).then(() => setTab("conversation"));
       }}
     >
       {canChat && tab !== "conversation" && (
         <p className="composerLead">
-          {project.status === "complete"
-            ? "연구가 끝났어요. 결과에 대해 더 궁금한 걸 물어보세요."
-            : "연구가 중간에 멈췄지만, 지금까지 결과로 질문할 수 있어요."}
+          {deep
+            ? "더 알고 싶은 게 있으면 이어서 조사해요"
+            : project.status === "complete"
+              ? "결과에 대해 더 물어보세요"
+              : "연구가 중간에 멈췄지만, 지금까지 결과로 물어볼 수 있어요"}
         </p>
       )}
-      {canChat && !message.trim() && (
+      {canDeepen && (
+        <div className="segmented" role="radiogroup" aria-label="질문 방식">
+          {(
+            [
+              ["deep", "깊게 다시 조사"],
+              ["quick", "빠른 답변"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              type="button"
+              role="radio"
+              key={key}
+              aria-checked={askMode === key}
+              className={askMode === key ? "active" : ""}
+              onClick={() => setAskMode(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {canChat && !deep && !message.trim() && tab !== "conversation" && (
         <div className="ideaChips" aria-label="질문 예시">
           {followUpIdeas.map((idea) => (
             <button
@@ -1039,6 +1187,7 @@ export default function Page() {
       <MarkdownField
         id="followupMessage"
         label="이어서 질문하기"
+        hideLabel={tab === "conversation"}
         compact
         value={message}
         disabled={!canChat || messageBusy}
@@ -1047,20 +1196,61 @@ export default function Page() {
           saveLocal(`chat:${project.id}`, value);
         }}
         minLength={1}
-        maxLength={10000}
+        maxLength={20000}
         required
         placeholder={
-          canChat
+          deep
+            ? "예: 시제품 없이 제안서만으로 수상한 사례를 더 찾아 줘"
+            : canChat
             ? "이 연구에 이어서 질문하거나, 다음 작업을 요청해 보세요."
             : project.status === "running" || project.status === "queued"
               ? "연구가 끝나면 여기서 이어서 질문할 수 있어요. 진행 중에는 과정 탭의 개입 메모를 써 주세요."
               : "아직 대화할 연구 결과가 없어요. 먼저 이어서 실행해 주세요."
         }
         onSubmitShortcut={() =>
-          void sendMessage().then(() => setTab("conversation"))
+          deep ? void deepenResearch() : void sendMessage().then(() => setTab("conversation"))
         }
       />
+      {canDeepen && !deep && RESEARCH_ASK.test(message) && (
+        <p className="help quickHint">조사를 이어가려면 &apos;깊게 다시 조사&apos;를 골라 주세요.</p>
+      )}
+      {deep && (
+        <div className="roundPicker">
+          <span id="deepRoundsLabel">몇 라운드 더 볼까요?</span>
+          <div className="segmented" role="radiogroup" aria-labelledby="deepRoundsLabel">
+            {[1, 2, 3, 4, 5, 6].map((n) => (
+              <button
+                type="button"
+                role="radio"
+                key={n}
+                aria-checked={deepRounds === n}
+                className={deepRounds === n ? "active" : ""}
+                disabled={actionBusy}
+                onClick={() => setDeepRounds(n)}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <p className="help">
+            라운드 {deepRounds}회 · 호출 약 {2 * deepRounds + 1}~{2 * deepRounds + 2}회. 저장된 조사는 그대로 쓰고,
+            끝나면 보고서를 새로 써요.
+          </p>
+        </div>
+      )}
+      {!deep && canChat && project.status === "complete" && (
+        <label className="syncToggle">
+          <input
+            type="checkbox"
+            checked={project.reportSync !== false}
+            disabled={actionBusy}
+            onChange={(e) => void toggleSetting("reportSync", e.target.checked)}
+          />
+          <span>답변 후 보고서도 다시 쓰기 <small>호출 1~2회를 더 써요</small></span>
+        </label>
+      )}
       <div className="chatActions">
+        {deep ? null : (
         <label>
           응답 대상
           <select
@@ -1076,7 +1266,8 @@ export default function Page() {
             <option value="Claude">Claude만</option>
           </select>
         </label>
-        {project.mode === "subscription" && (
+        )}
+        {!deep && project.mode === "subscription" && (
           <details className="chatModelDetails">
             <summary>이번 질문의 모델 바꾸기</summary>
             <ModelPicker
@@ -1098,9 +1289,17 @@ export default function Page() {
         )}
         <button
           className="primary"
-          disabled={!canChat || messageBusy || !message.trim()}
+          disabled={!staleBuild && (!canChat || messageBusy || actionBusy || !message.trim())}
         >
-          {messageBusy ? "보내는 중…" : "보내기"}
+          {staleBuild
+            ? "새로고침"
+            : deep
+              ? actionBusy
+                ? "요청하는 중…"
+                : "다시 조사하기"
+              : messageBusy
+                ? "보내는 중…"
+                : "보내기"}
         </button>
       </div>
     </form>
@@ -1120,7 +1319,6 @@ export default function Page() {
         >
           <span className="brandIcon">◈</span> 우리의장난감
         </a>
-        <div className="workspace">PERSONAL WORKSPACE</div>
         {/* Unsent drafts are kept; the composer is the only place to see them now. */}
         <button
           className="newProject"
@@ -1130,17 +1328,17 @@ export default function Page() {
             setView("new");
           }}
         >
-          ＋ 새 연구 프로젝트
+          새 연구 시작하기
         </button>
         <div className="sideLabel">
-          연구 라이브러리 <span>{projects.length}</span>
+          내 연구 <span>{projects.length}</span>
         </div>
         {projects.length > 4 && (
           <input
             className="projectSearch"
             type="search"
             aria-label="프로젝트 검색"
-            placeholder="프로젝트 검색"
+            placeholder="연구 찾기"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -1174,44 +1372,64 @@ export default function Page() {
               </button>
             ))}
         </nav>
-        <div className="sideFooter">
-          <span className="dot complete" /> 로컬 저장소 연결됨
-          <small>GPT + Claude · 자동 연구</small>
-        </div>
       </aside>
       <main>
-        <header>
-          <span>
-            워크스페이스 <b>/</b>{" "}
-            {id ? "연구 프로젝트" : view === "new" ? "새 연구" : "홈"}
-          </span>
-          <span className="updateBanner">
-            <UpdateButton />
-            <span className="pill">LOCAL</span>
-          </span>
+        <header className="topbar">
+          <UpdateButton />
         </header>
         <div className="content">
-          {!id && view === "home" && (
+          {staleBuild && (
+            <div className="staleBanner" role="alert">
+              <span>
+                <b>새 버전이 적용됐어요</b>
+                새로고침해야 새 기능으로 보내져요. 쓰던 글은 그대로 남아요.
+              </span>
+              <button className="primary" onClick={() => location.reload()}>
+                새로고침
+              </button>
+            </div>
+          )}
+          {offline && (
+            <div className="connectionBanner" role="status">
+              서버 연결이 끊겼어요. 자동으로 다시 연결하고 있어요.
+            </div>
+          )}
+          {!offline && !workerUp && projects.some((p) => p.busy) && (
+            <div className="connectionBanner warn" role="status">
+              연구 작업자(worker)가 멈춰 있어요. 진행 중으로 보이는 작업이 실제로는 멈췄을 수 있어요.
+              터미널에서 <code>pm2 status</code> 또는 <code>npm run dev</code>를 확인해 주세요.
+            </div>
+          )}
+          {error && (
+            <div role="alert" className="error">
+              {error.replace(/^(Type)?Error:\s*/, "")}
+              <button onClick={() => setError("")}>닫기</button>
+            </div>
+          )}
+          {!id && view === "home" ? (
+            <>
+              <h1 className="screenTitle">
+                GPT와 Claude가
+                <br />
+                <span>함께 알아봐요</span>
+              </h1>
+              <p className="intro">
+                질문 하나만 남기면 두 모델이 번갈아 다듬어 보고서까지 만들어요.
+              </p>
             <section
               className="accountUsageStrip"
               aria-label="계정 구독 잔여 사용량"
               aria-live="polite"
             >
               <div className="usageStripHeading">
-                <div>
-                  <span className="eyebrow">SUBSCRIPTION STATUS</span>
-                  <h2>구독 잔여 사용량</h2>
-                </div>
+                <h2>남은 구독 사용량</h2>
                 <span>
                   {accountUsage
-                    ? `${new Date(accountUsage.fetchedAt).toLocaleTimeString(
-                        "ko-KR",
-                        {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        },
-                      )} 기준 · 60초마다 갱신`
-                    : "확인 중…"}
+                    ? `${new Date(accountUsage.fetchedAt).toLocaleTimeString("ko-KR", {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })} 기준`
+                    : "확인하는 중이에요"}
                 </span>
               </div>
               {auth?.locked && (
@@ -1234,99 +1452,85 @@ export default function Page() {
                 />
               </div>
             </section>
-          )}
-          {offline && (
-            <div className="connectionBanner" role="status">
-              서버 연결이 끊겼어요. 자동으로 다시 연결하고 있어요.
-            </div>
-          )}
-          {!offline && !workerUp && projects.some((p) => p.busy) && (
-            <div className="connectionBanner warn" role="status">
-              연구 작업자(worker)가 멈춰 있어요. 진행 중으로 보이는 작업이 실제로는 멈췄을 수 있어요.
-              터미널에서 <code>pm2 status</code> 또는 <code>npm run dev</code>를 확인해 주세요.
-            </div>
-          )}
-          {error && (
-            <div role="alert" className="error">
-              {error.replace(/^(Type)?Error:\s*/, "")}
-              <button onClick={() => setError("")}>닫기</button>
-            </div>
-          )}
-          {!id && view === "home" ? (
-            <>
-              <div className="eyebrow">TWO PERSPECTIVES. DEEPER RESEARCH.</div>
-              <h1>
-                질문 하나에서,
-                <br />
-                <span>더 깊은 이해까지.</span>
-              </h1>
-              <p className="intro">
-                GPT와 Claude가 각자 초안을 쓰고, 하나로 합친 문서를 번갈아 다듬습니다.
-                <br />
-                질문을 남기면 초안부터 최종 보고서까지 자동으로 이어지고, 중간에 끼어들 수도 있습니다.
-              </p>
+
             </>
           ) : !id ? (
             <>
+              <h1 className="screenTitle">무엇을 알아볼까요?</h1>
               <form className="composer" onSubmit={submit}>
                 <MarkdownField
                   id="topic"
-                  label="무엇을 깊이 연구할까요?"
+                  label="연구 질문"
+                  hideLabel
                   value={topic}
                   onChange={setTopic}
                   minLength={5}
-                  maxLength={2000}
+                  maxLength={20000}
                   required
                   placeholder={
-                    "예: 공공 Multi-Agent 환경에서 정보 분류와 에이전트 권한을 결합하는 정책의 가능성과 한계\n\n### 특히 궁금한 점\n- **권한 위임** 범위\n- 국내외 사례"
+                    "예: 공공기관이 AI 에이전트에게 권한을 나눠 줄 때 지켜야 할 기준은 뭘까?"
                   }
                 />
-                <MarkdownField
-                  id="referenceText"
-                  label="참고 텍스트 · 선택"
-                  value={referenceText}
-                  onChange={setReferenceText}
-                  maxLength={20000}
-                  placeholder="기존 메모, 연구 배경, 검토할 문서 내용을 붙여넣으세요. Markdown 제목·목록을 쓰면 모델이 구조를 더 잘 파악합니다."
-                />
-                <label htmlFor="attachments">참고 파일 · 선택</label>
-                <input
-                  id="attachments"
-                  type="file"
-                  multiple
-                  accept=".pdf,.txt,.md,.csv,.json,.log"
-                  disabled={reading || busy}
-                  onChange={(e) => {
-                    const files = Array.from(e.target.files ?? []);
-                    e.target.value = "";
-                    void attach(files);
-                  }}
-                />
-                <p className="help">
-                  PDF(20MB 이하, 텍스트가 있는 PDF) · TXT · MD · CSV · JSON · LOG,
-                  최대 5개. 파일당 40,000자, 참고 자료 합계 60,000자. PDF는 브라우저에서
-                  텍스트만 뽑아 쪽 번호와 함께 전달하고, 길면 앞부분만 넣습니다. 스캔
-                  이미지 PDF·Word·한글은 텍스트를 복사해 위에 넣어주세요.
-                </p>
-                {reading && <p role="status">파일 읽는 중… PDF는 쪽수에 따라 몇 초 걸릴 수 있습니다.</p>}
-                {attachments.map((file, index) => (
-                  <details className="questionHistory" key={index}>
-                    <summary>
-                      {file.name} · {file.text.length.toLocaleString()}자
-                    </summary>
-                    <pre className="prewrap">{file.text}</pre>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setAttachments((files) =>
-                          files.filter((_, i) => i !== index),
-                        )
-                      }
-                    >
-                      첨부 제거
-                    </button>
-                  </details>
-                ))}
+                {topic.length > 8000 && (
+                  <p className="help">
+                    브리프는 매 호출마다 함께 보내요. 길수록 호출당 토큰이 늘어요.
+                  </p>
+                )}
+                <details className="formGroup" open={Boolean(referenceText || attachments.length)}>
+                  <summary>
+                    참고 자료 추가
+                    <span>
+                      {referenceText || attachments.length
+                        ? `텍스트 ${referenceText ? "있음" : "없음"} · 파일 ${attachments.length}개`
+                        : "선택"}
+                    </span>
+                  </summary>
+                  <MarkdownField
+                    id="referenceText"
+                    label="참고 텍스트"
+                    value={referenceText}
+                    onChange={setReferenceText}
+                    maxLength={20000}
+                    placeholder="메모나 검토할 문서 내용을 붙여넣어 주세요."
+                  />
+                  <div className="fileRow">
+                    <label htmlFor="attachments" className={`fileButton ${reading || busy ? "disabled" : ""}`}>
+                      파일 선택
+                    </label>
+                    <input
+                      id="attachments"
+                      className="srOnly"
+                      type="file"
+                      multiple
+                      accept=".pdf,.txt,.md,.csv,.json,.log"
+                      disabled={reading || busy}
+                      onChange={(e) => {
+                        const files = e.target.files;
+                        void attach(files);
+                        e.target.value = "";
+                      }}
+                    />
+                    <span className="help">
+                      {reading ? "파일을 읽는 중이에요…" : "PDF·TXT·MD·CSV·JSON 최대 5개, 합계 6만 자까지"}
+                    </span>
+                  </div>
+                  {attachments.map((file, index) => (
+                    <div className="fileItem" key={index}>
+                      <span>
+                        <b>{file.name}</b>
+                        <small>{file.text.length.toLocaleString()}자</small>
+                      </span>
+                      <button
+                        type="button"
+                        className="textButton"
+                        onClick={() => setAttachments((files) => files.filter((_, i) => i !== index))}
+                      >
+                        빼기
+                      </button>
+                    </div>
+                  ))}
+                </details>
+                <h2 className="fieldTitle">얼마나 깊게 볼까요?</h2>
                 <div className="presetRow" role="group" aria-label="속도 프리셋">
                   {(Object.keys(PRESETS) as Preset[]).map((key) => (
                     <button
@@ -1356,6 +1560,14 @@ export default function Page() {
                     </small>
                   </p>
                 )}
+                <details className="formGroup">
+                  <summary>
+                    세부 설정
+                    <span>
+                      {strategyNames[strategy]} · {reportTemplate === "contest" ? "공모전 제안서" : "연구 보고서"} ·{" "}
+                      {mode === "mock" ? "체험" : "구독"}
+                    </span>
+                  </summary>
                 <div className="formOptions">
                   <label>
                     실행 모드
@@ -1365,9 +1577,9 @@ export default function Page() {
                         setMode(e.target.value as "mock" | "subscription")
                       }
                     >
-                      <option value="mock">Mock · 키 없이 체험</option>
+                      <option value="mock">체험 · 모델 호출 없음</option>
                       <option value="subscription" disabled={!ready}>
-                        구독 · Codex + Claude Code
+                        구독 · 내 GPT·Claude 계정
                       </option>
                     </select>
                   </label>
@@ -1377,9 +1589,9 @@ export default function Page() {
                       value={strategy}
                       onChange={(e) => setStrategy(e.target.value as Strategy)}
                     >
-                      <option value="codraft">공동 초안 · 합치고 번갈아 수정 (권장)</option>
-                      <option value="relay">탐색 릴레이 · Claude와 GPT가 자료조사 보완</option>
-                      <option value="debate">토론 · 조사→비판→반박</option>
+                      <option value="codraft">공동 초안 · 합치고 번갈아 고치기 (추천)</option>
+                      <option value="relay">탐색 릴레이 · 서로 자료를 이어 조사</option>
+                      <option value="debate">토론 · 조사하고 비판하고 반박</option>
                     </select>
                   </label>
                   <label>
@@ -1389,15 +1601,10 @@ export default function Page() {
                       onChange={(e) => setReportTemplate(e.target.value as "default" | "contest")}
                     >
                       <option value="default">연구 보고서</option>
-                      <option value="contest">공모전 제안서 · 배경→문제→해결→효과→산출물</option>
+                      <option value="contest">공모전 제안서</option>
                     </select>
                   </label>
                 </div>
-                <details className="advancedSettings">
-                  <summary>
-                    고급 설정 · 라운드 {minRounds}~{rounds} · 예산{" "}
-                    {budget ? `${Math.round(Number(budget) / 1000)}천 토큰` : "없음"}
-                  </summary>
                   <div className="formOptions">
                     <label>
                       최대 라운드
@@ -1457,18 +1664,12 @@ export default function Page() {
                       />
                     </label>
                   </div>
-                  <p className="help">
-                    예산에 닿으면 다음 호출 전에 멈추고, 한도를 올려 이어서 실행할 수 있어요.
-                  </p>
-                </details>
+                  <p className="help">예산에 닿으면 멈추고, 한도를 올려 이어서 할 수 있어요.</p>
                 {mode === "subscription" ? (
                   <div className="modelSection">
                     <div className="modelSectionHead">
-                      <b>모델 선택</b>
-                      <span>
-                        비워 두면 .env 기본값을 씁니다. 내 구독 계정에서 쓸 수 있는
-                        모델이어야 합니다.
-                      </span>
+                      <b>모델</b>
+                      <span>비워 두면 기본 모델을 써요.</span>
                     </div>
                     <ModelPicker
                       value={models}
@@ -1478,31 +1679,18 @@ export default function Page() {
                     />
                   </div>
                 ) : (
-                  <p className="help">
-                    Mock 모드는 모델을 호출하지 않습니다. 모델을 고르려면 구독 모드를
-                    선택하세요.
-                  </p>
+                  <p className="help">체험 모드는 모델을 부르지 않아요.</p>
                 )}
-                <p className="help">
-                  최소 {minRounds}라운드 이후 수렴을 판단합니다. 최대 {rounds}
-                  라운드 · 모델 호출 최대{" "}
-                  {strategy === "codraft" ? 5 + 2 * rounds : strategy === "relay" ? 2 + 2 * rounds : 2 + 6 * rounds}회 (재시도·검색 제외).
-                  {strategy === "codraft"
-                    ? " 공동 초안: 두 모델이 각자 초안을 쓰고, GPT가 합친 문서를 Claude와 GPT가 번갈아 고칩니다. 둘 다 더 고칠 게 없다고 하면 끝납니다."
-                    : strategy === "relay"
-                      ? " 탐색 릴레이: Claude가 먼저 조사하면 GPT가 이어받아 빈틈을 채우고, 흐름에 맞지 않는 자료는 이유와 함께 빼고, 유망한 분야를 더 파고들어요. 둘 다 더 파고들 흐름이 없으면 끝나요."
-                      : " 토론: 매 라운드 독립 조사 → 상호비판 → 반박을 반복합니다."}
-                  최소와 최대를 같게 설정하면 지정한 라운드를 모두 수행합니다.
-                </p>
+                </details>
                 <div className="formBottom">
+                  <button className="primary block" disabled={busy || reading}>
+                    {busy ? "시작하는 중…" : "연구 시작하기"}
+                  </button>
                   <span>
                     {mode === "mock"
-                      ? "합성 예시로 전체 흐름을 확인합니다. API 비용 없음."
-                      : "로그인된 두 구독의 사용량이 차감됩니다. API 자동 전환 없음."}
+                      ? "체험 모드라 사용량이 들지 않아요."
+                      : "로그인된 GPT·Claude 구독 사용량이 쓰여요."}
                   </span>
-                  <button className="primary" disabled={busy || reading}>
-                    {busy ? "생성 중…" : "연구 시작 ↗"}
-                  </button>
                 </div>
               </form>
             </>
@@ -1526,10 +1714,10 @@ export default function Page() {
             <>
               <div className="projectTop">
                 <div>
-                  <div className="eyebrow">
+                  <p className="projectKind">
                     {strategyNames[(project.strategy ?? "debate") as Strategy]} ·{" "}
-                    {project.mode === "mock" ? "Mock" : "구독"}
-                  </div>
+                    {project.mode === "mock" ? "체험" : "구독"}
+                  </p>
                   {renaming !== null ? (
                     <form
                       className="renameForm"
@@ -1565,7 +1753,6 @@ export default function Page() {
                       <RichMarkdown>{project.topic}</RichMarkdown>
                     </details>
                   )}
-                  <ModelChips project={project} defaults={modelDefaults} />
                 </div>
                 <div className="projectActions">
                   {(project.status === "running" ||
@@ -1573,85 +1760,149 @@ export default function Page() {
                     project.conversation.turns.some(
                       (t) => t.status === "running" || t.status === "queued",
                     )) && (
-                    <button className="danger" onClick={() => void stopProject()} disabled={actionBusy}>
-                      중지
+                    <button className="weak dangerText" onClick={() => void stopProject()} disabled={actionBusy}>
+                      멈추기
                     </button>
                   )}
-                  <button
-                    className="secondary"
-                    onClick={() => setRenaming(project.title ?? firstLine(project.topic))}
-                  >
-                    이름 변경
-                  </button>
-                  <button
-                    className="secondary"
-                    onClick={() =>
-                      download(
-                        `research-${project.id}.json`,
-                        JSON.stringify(project, null, 2),
-                        "application/json",
-                      )
-                    }
-                  >
-                    기록 내보내기
-                  </button>
-                  <button
-                    className="secondary dangerText"
-                    onClick={() => void deleteProject()}
-                    disabled={actionBusy}
-                  >
-                    삭제
-                  </button>
+                  <details className="moreMenu">
+                    <summary aria-label="더보기">더보기</summary>
+                    <div role="menu">
+                      <button
+                        role="menuitem"
+                        onClick={(e) => {
+                          e.currentTarget.closest("details")?.removeAttribute("open");
+                          setRenaming(project.title ?? firstLine(project.topic));
+                        }}
+                      >
+                        이름 바꾸기
+                      </button>
+                      <button
+                        role="menuitem"
+                        onClick={(e) => {
+                          e.currentTarget.closest("details")?.removeAttribute("open");
+                          download(
+                            `research-${project.id}.json`,
+                            JSON.stringify(project, null, 2),
+                            "application/json",
+                          );
+                        }}
+                      >
+                        기록 파일로 받기
+                      </button>
+                      <button
+                        role="menuitem"
+                        className="dangerText"
+                        onClick={(e) => {
+                          e.currentTarget.closest("details")?.removeAttribute("open");
+                          void deleteProject();
+                        }}
+                        disabled={actionBusy}
+                      >
+                        삭제하기
+                      </button>
+                    </div>
+                  </details>
                 </div>
               </div>
               {project.mode === "mock" && (
                 <div className="notice">
-                  MOCK MODE{" "}
-                  <span>
-                    합성 데이터로 실행 중입니다. 이 프로젝트의 주장과 출처는
-                    실제 연구 결과가 아닙니다.
-                  </span>
+                  체험 모드예요. 여기 나온 주장과 출처는 실제 연구 결과가 아니에요.
                 </div>
               )}
-              <div className="stats">
-                <div>
-                  <small>현재 상태</small>
-                  <strong>
-                    <span className={`dot ${project.status}`} />
-                    {labels[project.status]}
-                  </strong>
-                  <p>{project.stage}</p>
+              {project.limited && Object.keys(project.limited).length > 0 && (
+                <div className="limitBanner" role="status">
+                  {(["GPT", "Claude"] as const)
+                    .filter((actor) => project.limited?.[actor])
+                    .map((actor) => {
+                      const other = actor === "GPT" ? "Claude" : "GPT";
+                      const bothOut = Boolean(project.limited?.[other]);
+                      return (
+                        <span key={actor}>
+                          <b>{actor} 사용량 한도</b>
+                          {bothOut
+                            ? " · 두 모델 모두 한도에 걸렸어요"
+                            : project.soloOnLimit === false
+                              ? " · 한 모델로 계속하기가 꺼져 있어요"
+                              : ` · ${other}가 이어서 진행해요`}
+                          <Stamp at={project.limited![actor]!.at} />
+                        </span>
+                      );
+                    })}
                 </div>
-                <div>
-                  <small>연구 라운드</small>
-                  <strong>
-                    {project.rounds.length}
-                    <em> / {project.maxRounds}</em>
-                  </strong>
-                  <p>
-                    최소 {project.minRounds ?? Math.min(6, project.maxRounds)} ·
-                    최대 {project.maxRounds} 라운드
-                  </p>
-                </div>
-                <div>
-                  <small>주장 원장</small>
-                  <strong>
-                    {project.claims.length}
-                    <em> 개</em>
-                  </strong>
-                  <p>
-                    {project.strategy === "relay"
-                      ? `제외한 자료 ${project.exclusions?.length ?? 0}개`
-                      : "출처 · 반론 추적"}
-                  </p>
-                </div>
-                <div>
-                  <small>미해결 질문</small>
-                  <strong>{project.unresolved.length}</strong>
-                  <p>{project.conversation?.turns.length ?? 0}개 후속 대화</p>
-                </div>
+              )}
+              <div className="projectSummary">
+                <ProjectNow project={project} />
+                <button
+                  type="button"
+                  className="weak"
+                  aria-expanded={showDetails}
+                  aria-controls="projectDetails"
+                  onClick={() => setShowDetails((v) => !v)}
+                >
+                  {showDetails ? "접기" : "자세히"}
+                </button>
               </div>
-              <ProjectNow project={project} />
+              {showDetails && (
+                <div id="projectDetails" className="projectDetails">
+                  <ModelChips project={project} defaults={modelDefaults} />
+                  {project.mode !== "mock" && (
+                    <label className="syncToggle">
+                      <input
+                        type="checkbox"
+                        checked={project.soloOnLimit !== false}
+                        disabled={actionBusy}
+                        onChange={(e) => void toggleSetting("soloOnLimit", e.target.checked)}
+                      />
+                      <span>
+                        한도에 걸리면 남은 모델로 계속
+                        <small>
+                          {project.strategy === "debate"
+                            ? "토론 방식은 두 모델이 모두 필요해서 이 설정과 상관없이 멈춰요"
+                            : "한 모델 사용량이 떨어져도 다른 모델이 이어서 해요"}
+                        </small>
+                      </span>
+                    </label>
+                  )}
+                <div className="stats">
+                  <div>
+                    <small>현재 상태</small>
+                    <strong>
+                      <span className={`dot ${project.status}`} />
+                      {labels[project.status]}
+                    </strong>
+                    <p>{project.stage}</p>
+                  </div>
+                  <div>
+                    <small>연구 라운드</small>
+                    <strong>
+                      {project.rounds.length}
+                      <em> / {project.maxRounds}</em>
+                    </strong>
+                    <p>
+                      최소 {project.minRounds ?? Math.min(6, project.maxRounds)} ·
+                      최대 {project.maxRounds} 라운드
+                    </p>
+                  </div>
+                  <div>
+                    <small>주장 원장</small>
+                    <strong>
+                      {project.claims.length}
+                      <em> 개</em>
+                    </strong>
+                    <p>
+                      {project.strategy === "relay"
+                        ? `제외한 자료 ${project.exclusions?.length ?? 0}개`
+                        : "출처 · 반론 추적"}
+                    </p>
+                  </div>
+                  <div>
+                    <small>미해결 질문</small>
+                    <strong>{project.unresolved.length}</strong>
+                    <p>{project.conversation?.turns.length ?? 0}개 후속 대화</p>
+                  </div>
+                </div>
+                </div>
+              )}
               {project.error && (
                 <div className="error" role="alert">
                   {project.error}
@@ -1713,7 +1964,7 @@ export default function Page() {
                   </div>
                 )}
               {project.stopReason && (
-                <p className="stopReason">종료 사유 · {project.stopReason}</p>
+                <p className="stopReason">끝난 이유 · {project.stopReason}</p>
               )}
               {(() => {
                 const tabs: [string, string][] = [
@@ -1788,11 +2039,25 @@ export default function Page() {
                     <div className="chatLog">
                       {!(project.conversation?.turns ?? []).length && (
                         <div className="empty chatEmpty">
-                          <h2>연구 결과에 이어서 질문하세요.</h2>
-                          <p>
-                            한 모델만 선택하거나 두 모델의 답을 동시에 받을 수
-                            있습니다.
-                          </p>
+                          <h2>연구 결과에 대해 물어보세요</h2>
+                          <p>GPT와 Claude 중 한쪽만, 또는 둘 다에게 물어볼 수 있어요.</p>
+                          {canChat && (
+                            <div className="ideaChips" aria-label="질문 예시">
+                              {followUpIdeas.map((idea) => (
+                                <button
+                                  type="button"
+                                  key={idea}
+                                  onClick={() => {
+                                    setMessage(idea);
+                                    saveLocal(`chat:${project.id}`, idea);
+                                    document.getElementById("followupMessage")?.focus();
+                                  }}
+                                >
+                                  {idea}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
                       {turnWindow < chatTurns.length && (
@@ -2007,40 +2272,71 @@ export default function Page() {
                   (project.report ? (
                     <>
                       <div className="sectionHeading">
-                        <h2>최종 종합 보고서</h2>
+                        <h2>최종 보고서</h2>
                         <span className="reportActions">
-                          <CopyButton text={project.report} label="보고서 복사" />
-                          <button className="secondary" onClick={() => window.print()}>
-                            PDF로 저장
-                          </button>
-                          <button
-                            className="secondary"
-                            disabled={exporting}
-                            onClick={() => exportDocx(project.id)}
-                          >
-                            {exporting ? "Word 만드는 중" : "Word 다운로드"}
-                          </button>
-                          <button
-                            className="primary"
-                            onClick={() => download(`research-${project.id}.md`, project.report!)}
-                          >
-                            Markdown 다운로드
-                          </button>
+                          {project.status === "complete" && (
+                            <button
+                              className="weak"
+                              disabled={actionBusy}
+                              onClick={() => setConfirmRewrite(true)}
+                            >
+                              다시 쓰기
+                            </button>
+                          )}
+                          <details className="moreMenu">
+                            <summary>내보내기</summary>
+                            <div role="menu">
+                              <CopyButton text={project.report} label="복사" />
+                              <button role="menuitem" onClick={() => window.print()}>
+                                PDF로 저장
+                              </button>
+                              <button role="menuitem" disabled={exporting} onClick={() => exportDocx(project.id)}>
+                                {exporting ? "Word 만드는 중…" : "Word 파일"}
+                              </button>
+                              <button
+                                role="menuitem"
+                                onClick={() => download(`research-${project.id}.md`, project.report!)}
+                              >
+                                Markdown 파일
+                              </button>
+                            </div>
+                          </details>
                         </span>
                       </div>
+                      {confirmRewrite && (
+                        <div className="confirmCard" role="alertdialog" aria-labelledby="rewriteTitle">
+                          <b id="rewriteTitle">보고서를 다시 쓸까요?</b>
+                          <p>조사 결과는 그대로 두고 보고서만 새 규칙으로 다시 써요. 보고서 호출을 1~2회 써요.</p>
+                          <div>
+                            <button className="weak" onClick={() => setConfirmRewrite(false)}>
+                              취소
+                            </button>
+                            <button className="primary" disabled={actionBusy} onClick={() => void rewriteReport()}>
+                              {actionBusy ? "요청하는 중…" : "다시 쓰기"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {reportSyncing && (
+                        <p className="syncNote" role="status">
+                          대화 내용을 반영해 새 보고서를 쓰는 중이에요. 다 되면 이 자리에 바뀐 보고서가 보여요.
+                        </p>
+                      )}
                       {project.reportTemplate === "contest" && (
                         <p className="help">공모전 제안서 형식으로 작성했어요.</p>
                       )}
                       <article className="report printable">
                         <RichMarkdown>{project.report}</RichMarkdown>
                       </article>
+                      <ReportHistory history={project.reportHistory} followUps={project.followUps} />
                     </>
                   ) : (
                     <div className="empty">
                       {project.status === "running" || project.status === "queued" ? (
                         <>
-                          <h2>연구가 진행 중이에요.</h2>
-                          <p>연구가 끝나면 미해결 질문과 출처를 담은 보고서가 여기에 보여요.</p>
+                          <h2>{project.reportHistory?.length ? "보고서를 다시 쓰고 있어요" : "연구가 진행 중이에요"}</h2>
+                          <p>끝나면 새 보고서가 여기에 보여요. 이전 보고서는 아래에서 볼 수 있어요.</p>
+                          <ReportHistory history={project.reportHistory} followUps={project.followUps} />
                         </>
                       ) : (
                         <>
