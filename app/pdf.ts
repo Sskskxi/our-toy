@@ -13,6 +13,14 @@ export type PdfText = {
 // Text is extracted in the browser; the server only ever receives plain text,
 // exactly as with .txt attachments. pdf.js runs in a worker without XFA forms or
 // scripting; v6 has no eval-based font path (the CVE-2024-4367 vector).
+/** Error type, message and first stack frame: browser-specific PDF failures are
+ * otherwise invisible, since the reader runs only in the user's browser. */
+function failureDetail(e: unknown) {
+  const error = e as { name?: string; message?: string; stack?: string };
+  const frame = (error?.stack ?? "").split("\n")[0]?.trim().slice(0, 120);
+  return [error?.name, error?.message, frame].filter(Boolean).join(" · ").slice(0, 300) || String(e);
+}
+
 export async function extractPdfText(file: File, maxChars: number): Promise<PdfText> {
   // The reader is loaded on demand, so a page left open across an app update
   // asks for files the new build no longer has. Say so instead of failing with
@@ -42,7 +50,7 @@ export async function extractPdfText(file: File, maxChars: number): Promise<PdfT
     throw new Error(
       name === "PasswordException"
         ? `${file.name}: 암호가 걸린 PDF는 읽을 수 없습니다.`
-        : `${file.name}: PDF를 열지 못했습니다. 손상된 파일인지 확인하세요.`,
+        : `${file.name}: PDF를 열지 못했습니다. 손상된 파일인지 확인하세요. (${failureDetail(e)})`,
     );
   }
   try {
@@ -79,6 +87,9 @@ export async function extractPdfText(file: File, maxChars: number): Promise<PdfT
         `${file.name}: 텍스트를 찾지 못했습니다. 스캔 이미지로 된 PDF는 지원하지 않으니 OCR 후 텍스트를 붙여넣어 주세요.`,
       );
     return { text, pages: doc.numPages, readPages, truncated };
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith(file.name)) throw e;
+    throw new Error(`${file.name}: PDF 내용을 읽는 중 멈췄어요. (${failureDetail(e)})`);
   } finally {
     await task.destroy();
   }
