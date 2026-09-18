@@ -2735,3 +2735,1404 @@ dialog.updateDialog::backdrop {
     color: var(--ink);
   }
 }
+
+/* ==========================================================================
+   Toss-style layer (docs/DESIGN.md): grey ground, white cards without borders,
+   big bold titles, 해요체, one big primary action, settings folded away.
+   Kept last so it wins over the older component rules above.
+   ========================================================================== */
+:root {
+  --bg: #EEEEF0;
+  --card: #FFFFFF;
+  --fill: rgba(5, 1, 74, 0.05);
+  --fill-hover: rgba(5, 1, 74, 0.09);
+  --radius-card: 20px;
+  --radius-control: 12px;
+  --font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+    "Segoe UI", sans-serif;
+}
+body {
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.6;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+}
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+  letter-spacing: inherit;
+}
+
+/* ---- Sidebar ---- */
+aside {
+  padding: 28px 16px;
+}
+.brand {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  padding: 0 8px;
+}
+.brandIcon {
+  font-size: 22px;
+  line-height: 32px;
+}
+.newProject {
+  margin-top: 28px;
+  min-height: 48px;
+  border-radius: var(--radius-control);
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+}
+.sideLabel {
+  margin: 32px 8px 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.projectSearch {
+  min-height: 40px;
+  border-radius: 10px;
+  border: 0;
+  font-size: 14px;
+}
+.projectSearch::placeholder {
+  color: var(--on-brand-muted);
+}
+.projectButton {
+  padding: 11px 12px;
+  border-radius: var(--radius-control);
+  font-size: 15px;
+  font-weight: 500;
+  align-items: center;
+}
+.projectButton small {
+  font-size: 13px;
+  font-weight: 400;
+  margin-top: 2px;
+}
+.projectButton.selected {
+  box-shadow: none;
+  background: var(--on-brand-line);
+  font-weight: 600;
+}
+
+/* ---- Top bar: only the update notice lives here ---- */
+header.topbar {
+  height: auto;
+  border: 0;
+  padding: 16px 40px 0;
+  justify-content: flex-end;
+  min-height: 16px;
+}
+.content {
+  max-width: 960px;
+  padding: 24px 40px 0;
+}
+footer {
+  display: none;
+}
+
+/* ---- Typography ---- */
+h1,
+.screenTitle {
+  font-size: 30px;
+  line-height: 1.35;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin: 24px 0 12px;
+}
+.screenTitle span {
+  color: var(--accent);
+}
+.intro {
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin: 0 0 32px;
+}
+h2 {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.help,
+small,
+.sectionHeading > span {
+  font-size: 13px;
+}
+.eyebrow {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* ---- Cards: white, no border, no shadow ---- */
+.accountUsageStrip,
+.composer,
+.stats,
+.claim,
+.report,
+.empty,
+.insight,
+.question,
+.questionHistory,
+.projectNow {
+  background: var(--card);
+  border: 0;
+  box-shadow: none;
+  border-radius: var(--radius-card);
+}
+.accountUsageStrip {
+  margin: 0 0 24px;
+  padding: 24px;
+}
+.usageStripHeading {
+  align-items: baseline;
+  margin-bottom: 16px;
+}
+.usageStripHeading h2 {
+  font-size: 20px;
+}
+.usageStripHeading > span {
+  font-size: 13px;
+}
+.providerLimits {
+  background: var(--fill);
+  border: 0;
+  border-radius: 16px;
+  padding: 18px;
+}
+.providerName {
+  border-bottom: 0;
+  padding-bottom: 4px;
+}
+.providerName b {
+  font-size: 17px;
+}
+.providerName .accountId {
+  font-size: 14px;
+}
+.providerName small {
+  font-size: 13px;
+}
+.avatar.brandLogo {
+  border: 0;
+}
+.planChip {
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.limitRow {
+  gap: 12px;
+}
+.limitRow .limitValue {
+  background: var(--card);
+  border: 0;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.limitRow .limitValue:first-child {
+  padding-left: 14px;
+}
+.limitValue > small {
+  font-size: 13px;
+}
+.limitValue strong {
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.limitValue > span {
+  font-size: 14px;
+}
+.limitValue em {
+  font-size: 12px;
+}
+
+/* ---- Buttons ---- */
+.primary,
+.secondary,
+.weak,
+button.danger {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: var(--radius-control);
+  font-size: 15px;
+  font-weight: 600;
+  border: 0;
+  transition: background-color 150ms cubic-bezier(0, 0, 0.2, 1);
+}
+.primary.block {
+  display: block;
+  width: 100%;
+  min-height: 56px;
+  border-radius: 16px;
+  font-size: 17px;
+}
+.secondary,
+.weak {
+  background: var(--fill);
+  color: var(--ink);
+}
+.secondary:hover:not(:disabled),
+.weak:hover:not(:disabled) {
+  background: var(--fill-hover);
+}
+.dangerText {
+  color: var(--danger);
+}
+.weakButton,
+.textButton,
+.fillButton,
+.dangerButton {
+  border-radius: 10px;
+}
+.weakButton {
+  background: var(--fill);
+  color: var(--ink);
+}
+.weakButton:hover:not(:disabled) {
+  background: var(--fill-hover);
+}
+
+/* ---- Inputs: filled, borderless ---- */
+select,
+input[type="number"],
+input[type="text"],
+.renameForm input,
+.authCode input {
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--fill);
+  color: var(--ink);
+  font-size: 15px;
+  padding: 0 14px;
+}
+.formOptions label,
+.chatActions label,
+.interventionActions label {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.mdField {
+  border: 0;
+  border-radius: 16px;
+  background: var(--fill);
+  margin: 0 0 16px;
+}
+.mdField:focus-within {
+  background: var(--card);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.mdBar {
+  padding: 12px 16px 0;
+}
+.mdBar label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.mdLinks {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.mdLink {
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 2px 8px;
+  border-radius: 8px;
+}
+.mdLink:hover,
+.mdLink[aria-pressed="true"] {
+  background: var(--fill);
+  color: var(--ink);
+}
+.mdToolbar {
+  padding: 6px 12px 0;
+}
+.mdToolbar button {
+  font-size: 13px;
+}
+.mdField textarea {
+  background: transparent;
+  border: 0;
+  font-size: 16px;
+  line-height: 1.6;
+  padding: 8px 16px 16px;
+}
+.mdField textarea:focus,
+.mdField textarea:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+#topic {
+  min-height: 140px;
+  font-size: 18px;
+}
+
+/* ---- New research form ---- */
+.composer {
+  padding: 24px;
+}
+.formGroup {
+  border-radius: 16px;
+  background: var(--fill);
+  margin: 0 0 16px;
+}
+.formGroup > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 18px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.formGroup > summary::-webkit-details-marker {
+  display: none;
+}
+.formGroup > summary::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  margin-left: 4px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 150ms cubic-bezier(0, 0, 0.2, 1);
+}
+.formGroup[open] > summary::after {
+  transform: rotate(225deg) translateY(-2px);
+}
+.formGroup > summary span {
+  margin-left: auto;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.formGroup[open] {
+  padding-bottom: 16px;
+}
+.formGroup[open] > :not(summary) {
+  margin-left: 18px;
+  margin-right: 18px;
+}
+.formGroup .mdField,
+.formGroup select,
+.formGroup input[type="number"] {
+  background: var(--card);
+}
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.fileButton {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.fileButton.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.fileItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--card);
+}
+.fileItem b {
+  font-size: 14px;
+  font-weight: 600;
+}
+.fieldTitle {
+  font-size: 17px;
+  margin: 24px 0 12px;
+}
+.presetRow {
+  gap: 8px;
+}
+.presetRow button {
+  border: 0;
+  border-radius: 16px;
+  background: var(--fill);
+  padding: 16px;
+  box-shadow: none;
+}
+.presetRow button b {
+  font-size: 16px;
+}
+.presetRow button span {
+  font-size: 13px;
+}
+.presetRow button.active {
+  background: var(--card);
+  box-shadow: 0 0 0 2px var(--brand);
+}
+.estimateLine {
+  font-size: 14px;
+  color: var(--ink);
+  margin: 12px 2px 20px;
+}
+.formOptions {
+  gap: 12px;
+  margin: 4px 0 12px;
+}
+.modelSection {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+.formBottom {
+  display: block;
+  border: 0;
+  padding: 8px 0 0;
+  margin-top: 8px;
+  text-align: center;
+}
+.formBottom > span {
+  display: block;
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+/* ---- Project screen ---- */
+.projectTop {
+  align-items: flex-start;
+  margin: 16px 0 20px;
+}
+.projectKind {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.projectTitle {
+  margin: 0 0 8px;
+  font-size: 28px;
+}
+.topicDetails summary {
+  font-size: 14px;
+  color: var(--muted);
+}
+.modelChips {
+  margin-top: 8px;
+}
+.modelChip {
+  background: var(--card);
+  border: 0;
+  font-size: 13px;
+}
+.projectActions {
+  align-items: center;
+  gap: 8px;
+}
+.moreMenu {
+  position: relative;
+}
+.moreMenu > summary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: var(--radius-control);
+  background: var(--card);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.moreMenu > summary::-webkit-details-marker {
+  display: none;
+}
+.moreMenu > div {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  min-width: 180px;
+  padding: 6px;
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: 0 8px 28px rgba(5, 1, 74, 0.12);
+  display: grid;
+}
+.moreMenu > div button {
+  text-align: left;
+  background: none;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 15px;
+  color: var(--ink);
+}
+.moreMenu > div button.dangerText {
+  color: var(--danger);
+}
+.moreMenu > div button:hover:not(:disabled) {
+  background: var(--fill);
+}
+.notice {
+  background: var(--card);
+  border: 0;
+  border-radius: 16px;
+  padding: 14px 18px;
+  font-size: 14px;
+  color: var(--ink);
+}
+.stats {
+  gap: 0;
+  padding: 20px 8px;
+}
+.stats > div {
+  border: 0;
+  padding: 0 16px;
+}
+.stats small {
+  font-size: 13px;
+  color: var(--muted);
+}
+.stats strong {
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.stats p {
+  font-size: 13px;
+}
+.projectNow {
+  padding: 14px 20px;
+  margin-top: 12px;
+  font-size: 14px;
+}
+.error {
+  border-radius: 16px;
+  border: 0;
+  box-shadow: inset 3px 0 0 var(--danger);
+  font-size: 14px;
+}
+.resumeBar {
+  border: 0;
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: inset 3px 0 0 var(--warning);
+  padding: 14px 18px;
+  font-size: 14px;
+}
+.stopReason {
+  font-size: 14px;
+  color: var(--muted);
+}
+.tabs {
+  gap: 20px;
+  border-bottom: 0;
+  margin-top: 28px;
+  overflow-x: auto;
+}
+.tabs button {
+  font-size: 16px;
+  font-weight: 600;
+  padding: 10px 0;
+  color: var(--disabled);
+  white-space: nowrap;
+}
+.tabs button.active {
+  color: var(--heading);
+  border-color: var(--heading);
+  font-weight: 700;
+}
+.sectionHeading h2 {
+  font-size: 20px;
+}
+
+/* ---- Follow-up composer ---- */
+.chatComposer.inline {
+  position: static;
+  border: 0;
+  background: var(--card);
+  border-radius: var(--radius-card);
+  padding: 20px 24px;
+  margin: 24px 0 32px;
+}
+.chatComposer.docked {
+  border-top: 0;
+  padding: 12px 0 20px;
+  background: linear-gradient(to bottom, transparent, var(--bg) 24px);
+}
+.chatComposer.docked .mdField {
+  background: var(--card);
+  box-shadow: 0 2px 16px rgba(5, 1, 74, 0.06);
+}
+.chatComposer .mdField textarea {
+  min-height: 56px;
+  max-height: 32vh;
+}
+.composerLead {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 12px;
+}
+.ideaChips button {
+  border: 0;
+  background: var(--fill);
+  min-height: 36px;
+  font-size: 14px;
+}
+.chatActions {
+  align-items: center;
+}
+.chatActions .primary {
+  min-height: 44px;
+}
+.chatEmpty {
+  padding: 32px 24px;
+  text-align: center;
+}
+.chatEmpty .ideaChips {
+  justify-content: center;
+  margin-top: 16px;
+}
+
+/* ---- Conversation & thread bubbles ---- */
+.chatMessage,
+.bubble {
+  border: 0;
+  border-radius: 20px;
+  font-size: 15px;
+}
+.assistantBubble,
+.bubble {
+  background: var(--card);
+}
+.roundChips {
+  background: var(--bg);
+}
+.roundChips button {
+  border: 0;
+  background: var(--card);
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 14px;
+}
+.roundHead span {
+  letter-spacing: 0;
+}
+.claim {
+  padding: 20px 24px;
+}
+.report {
+  padding: 32px;
+  font-size: 16px;
+  line-height: 1.75;
+}
+.connectionBanner {
+  border: 0;
+  border-radius: 16px;
+}
+.updateButton {
+  border: 0;
+  border-radius: 9999px;
+  background: var(--card);
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* ---- Key points, insights, details ---- */
+.keyPoints {
+  background: var(--card);
+  border: 0;
+  border-radius: 16px;
+  padding: 16px 20px;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.keyLabel {
+  position: static;
+  display: block;
+  margin-bottom: 6px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--heading);
+}
+.reportKey,
+.report .keyPoints {
+  font-size: 15px;
+}
+.bubble .keyPoints,
+.chatMessage .keyPoints {
+  background: var(--fill);
+}
+.insight {
+  padding: 18px 20px;
+}
+.insight h3 {
+  font-size: 16px;
+  font-weight: 700;
+}
+.insight li p {
+  font-size: 14px;
+}
+.insight li small {
+  font-size: 13px;
+}
+.restDetails,
+.restDetails > summary,
+.topicDetails summary,
+.chatModelDetails,
+.chatModelDetails summary {
+  font-size: 14px;
+}
+.restDetails > summary,
+.chatModelDetails summary {
+  color: var(--muted);
+  font-weight: 600;
+}
+.sectionHeading {
+  align-items: flex-end;
+  margin: 28px 0 16px;
+}
+.chatLog {
+  padding-bottom: 24px;
+}
+/* Docked composer: one quiet line, like a messenger input. */
+.chatComposer.docked .mdBar,
+.chatComposer.docked .mdToolbar {
+  display: none;
+}
+.chatComposer.docked .mdField {
+  margin-bottom: 10px;
+}
+.chatComposer.docked .mdField textarea {
+  min-height: 52px;
+  padding: 14px 16px;
+}
+.chatComposer.docked .chatActions label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chatComposer.docked .chatActions select {
+  min-height: 40px;
+}
+
+@media (max-width: 760px) {
+  .content {
+    padding: 16px 16px 0;
+  }
+  h1,
+  .screenTitle {
+    font-size: 26px;
+  }
+  .stats {
+    padding: 16px 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .formGroup > summary::after,
+  .primary,
+  .secondary,
+  .weak {
+    transition: none;
+  }
+}
+
+/* ---- Folded project info ---- */
+.projectSummary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.projectSummary .projectNow {
+  flex: 1;
+  margin: 0;
+  min-width: 0;
+}
+.projectSummary .weak {
+  flex: none;
+  min-height: 48px;
+  background: var(--card);
+}
+.projectSummary .weak:hover {
+  background: var(--fill-hover);
+}
+.projectDetails {
+  margin-top: 8px;
+  padding: 16px 0 0;
+}
+.projectDetails .modelChips {
+  margin: 0 0 8px;
+}
+.foldPanel {
+  margin-top: 12px;
+  border-radius: 16px;
+  background: var(--card);
+}
+.foldPanel > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 20px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+.foldPanel > summary::-webkit-details-marker {
+  display: none;
+}
+.foldPanel > summary span {
+  margin-left: auto;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.foldPanel > summary::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  margin-left: 4px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg) translateY(-2px);
+}
+.foldPanel[open] > summary::after {
+  transform: rotate(225deg) translateY(-2px);
+}
+.foldPanel[open] {
+  padding-bottom: 16px;
+}
+.foldPanel .insightGrid,
+.foldPanel > .help {
+  margin: 0 16px;
+}
+.foldPanel .insight {
+  background: var(--fill);
+  border-top: 0;
+}
+
+/* ---- Model identity colors: each model keeps its own brand hue ---- */
+:root {
+  --gpt: #10A37F; /* ChatGPT green: borders, dots, avatars */
+  --gpt-ink: #0A6E55; /* 5.6:1 on --gpt-soft, for small text */
+  --gpt-soft: #E7F6F2;
+  --claude: #D97757; /* Claude terracotta */
+  --claude-ink: #A34A2A; /* 5.2:1 on --claude-soft */
+  --claude-soft: #FBEFEA;
+}
+.modelChip,
+.modelChip.gpt {
+  background: var(--gpt-soft);
+  color: var(--gpt-ink);
+}
+.modelChip.claude {
+  background: var(--claude-soft);
+  color: var(--claude-ink);
+}
+.modelChip b,
+.modelChip em {
+  color: inherit;
+}
+.avatar.gpt:not(.brandLogo) {
+  background: var(--gpt-soft);
+  color: var(--gpt-ink);
+}
+.avatar.claude:not(.brandLogo) {
+  background: var(--claude-soft);
+  color: var(--claude-ink);
+}
+.modelDraft.gpt {
+  background: var(--gpt-soft);
+}
+.modelDraft.claude {
+  background: var(--claude-soft);
+}
+
+/* ---- Self-sizing text fields (no Markdown chrome) ---- */
+.mdLabel {
+  display: block;
+  padding: 12px 16px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.mdField textarea,
+.mdField.compact textarea,
+.chatComposer .mdField textarea,
+.chatComposer.docked .mdField textarea {
+  resize: none;
+  overflow-y: auto;
+  min-height: 52px;
+  max-height: none;
+  padding: 14px 16px;
+}
+.mdLabel + textarea {
+  padding-top: 6px;
+}
+#topic {
+  min-height: 96px;
+}
+.interventionBox {
+  background: var(--bg);
+  border-top: 0;
+  padding: 16px 0 20px;
+}
+.interventionHead {
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.interventionHead b {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--heading);
+}
+.interventionHead span {
+  font-size: 14px;
+  color: var(--muted);
+}
+.interventionBox .mdField {
+  background: var(--card);
+  margin: 0 0 10px;
+}
+.interventionActions {
+  align-items: center;
+}
+.interventionActions label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.interventionActions > span {
+  font-size: 14px;
+  color: var(--positive);
+}
+.interventionActions .primary {
+  background: var(--brand);
+}
+
+/* ---- Model-colored thread: GPT green, Claude terracotta ---- */
+.avatar.brandLogo.gpt {
+  background: var(--gpt);
+  color: #FFFFFF;
+}
+.avatar.brandLogo.claude {
+  background: var(--claude);
+  color: #FFFFFF;
+}
+.bubble .avatar.brandLogo,
+.modelRow .avatar.brandLogo {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 10px;
+}
+.bubble.gpt {
+  border-left: 4px solid var(--gpt);
+  border-radius: 8px 20px 20px 20px;
+}
+.bubble.claude {
+  border-right: 4px solid var(--claude);
+  border-radius: 20px 8px 20px 20px;
+}
+.bubble.ghost {
+  border: 1px dashed var(--line);
+}
+.bubbleHead b {
+  font-size: 15px;
+}
+.bubbleHead small {
+  font-size: 13px;
+}
+.bubble.gpt .bubbleHead b {
+  color: var(--gpt-ink);
+}
+.bubble.claude .bubbleHead b {
+  color: var(--claude-ink);
+}
+.bubble.gpt .changeList,
+.bubble.gpt .keyPoints,
+.bubble.gpt .claimList li {
+  background: var(--gpt-soft);
+  box-shadow: none;
+  border-radius: 12px;
+}
+.bubble.claude .changeList,
+.bubble.claude .keyPoints,
+.bubble.claude .claimList li {
+  background: var(--claude-soft);
+  box-shadow: none;
+  border-radius: 12px;
+}
+.changeList {
+  padding: 12px 14px;
+}
+.changeList > b,
+.bubble .keyLabel {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.bubble.gpt .changeList > b,
+.bubble.gpt .keyLabel {
+  color: var(--gpt-ink);
+}
+.bubble.claude .changeList > b,
+.bubble.claude .keyLabel {
+  color: var(--claude-ink);
+}
+.changeList li span {
+  font-size: 13px;
+}
+.changeList li p,
+.claimList p {
+  font-size: 15px;
+}
+.versionBar button {
+  border: 0;
+  border-left: 4px solid var(--gpt);
+  border-radius: 10px;
+  font-size: 14px;
+  min-height: 36px;
+}
+.versionBar button.claude {
+  border-left-color: var(--claude);
+}
+.roundHead span {
+  color: var(--heading);
+  font-weight: 700;
+}
+
+/* ---- Report actions, rewrite confirm, earlier reports ---- */
+.reportActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.reportActions .weak {
+  background: var(--card);
+}
+.moreMenu > div .copyButton {
+  text-align: left;
+  background: none;
+  border: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 15px;
+  color: var(--ink);
+}
+.moreMenu > div .copyButton:hover {
+  background: var(--fill);
+}
+.confirmCard {
+  margin: 0 0 16px;
+  padding: 20px 24px;
+  border-radius: var(--radius-card);
+  background: var(--card);
+}
+.confirmCard b {
+  display: block;
+  font-size: 17px;
+  color: var(--heading);
+}
+.confirmCard p {
+  margin: 6px 0 16px;
+  font-size: 15px;
+  color: var(--muted);
+}
+.confirmCard div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.reportHistory {
+  margin-top: 16px;
+}
+.reportVersions {
+  display: grid;
+  gap: 8px;
+  margin: 0 16px;
+}
+.reportVersion {
+  border-radius: 12px;
+  background: var(--fill);
+}
+.reportVersion > summary {
+  padding: 12px 16px;
+  font-size: 15px;
+  cursor: pointer;
+}
+.reportVersion > summary span {
+  margin-left: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.reportVersion .report {
+  margin: 0 8px 8px;
+  padding: 20px;
+}
+.empty .reportHistory {
+  text-align: left;
+}
+
+/* ---- Follow-up deep research ---- */
+.segmented {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  background: var(--fill);
+}
+.segmented button {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+.segmented button.active {
+  background: var(--card);
+  color: var(--heading);
+  box-shadow: 0 1px 3px rgba(5, 1, 74, 0.08);
+}
+.chatComposer.inline .segmented button.active {
+  background: var(--brand);
+  color: var(--on-brand);
+  box-shadow: none;
+}
+.deepHint {
+  margin: -6px 2px 10px;
+  font-size: 13px;
+}
+.followUpDivider {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 32px 0 16px;
+  padding: 14px 18px;
+  border-radius: 16px;
+  background: var(--brand);
+  color: var(--on-brand);
+}
+.followUpDivider span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--highlight);
+}
+.followUpDivider b {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.followUpDivider .stamp {
+  font-size: 13px;
+  color: var(--on-brand-muted);
+}
+.roundPicker {
+  margin: 0 0 12px;
+}
+.roundPicker > span {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.roundPicker .segmented {
+  margin-bottom: 6px;
+}
+.roundPicker .segmented button {
+  min-width: 44px;
+  font-variant-numeric: tabular-nums;
+}
+.roundPicker .help {
+  margin: 0;
+}
+.chatActions:has(> .primary:only-child) {
+  justify-content: flex-end;
+}
+
+/* ---- Speaker positions: GPT left, Claude right, me in the middle ---- */
+.userBubble,
+.chatTurn > .userBubble {
+  align-self: center;
+  max-width: min(640px, 76%);
+}
+.questionBubble {
+  justify-content: center;
+}
+.questionBubble .chatMessage {
+  max-width: min(640px, 76%);
+}
+.assistantBubble.gpt {
+  align-self: flex-start;
+  border-left: 4px solid var(--gpt);
+  border-radius: 8px 20px 20px 20px;
+}
+.assistantBubble.claude {
+  align-self: flex-end;
+  border-right: 4px solid var(--claude);
+  border-radius: 20px 8px 20px 20px;
+}
+.assistantBubble.both {
+  align-self: stretch;
+  max-width: none;
+}
+.chatTurn:has(> .assistantBubble.claude) > .turnModel {
+  align-self: flex-end;
+}
+
+/* ---- New build loaded while this tab kept old code ---- */
+.staleBanner {
+  position: sticky;
+  top: 12px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 14px 18px;
+  border-radius: 16px;
+  background: var(--brand);
+  color: var(--on-brand-muted);
+  font-size: 14px;
+}
+.staleBanner b {
+  display: block;
+  color: var(--on-brand);
+  font-size: 16px;
+}
+.staleBanner .primary {
+  background: var(--on-brand);
+  color: var(--brand);
+  flex: none;
+}
+.quickHint {
+  margin: -6px 2px 10px;
+  color: var(--ink);
+}
+
+/* ---- Long calls: show they are alive; skipped turns stay neutral ---- */
+.runningInfo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.progressLine {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.skippedNote {
+  margin: 8px 0 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--fill);
+  color: var(--ink);
+  font-size: 14px;
+}
+.callStatus.skipped {
+  color: var(--muted);
+}
+.syncNote {
+  margin: 0 0 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--accent-weak);
+  color: var(--ink);
+  font-size: 14px;
+}
+.syncToggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: -4px 2px 10px;
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.syncToggle input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--brand);
+}
+.syncToggle small {
+  display: inline;
+  margin-left: 6px;
+  color: var(--muted);
+}
+.mdField {
+  position: relative;
+}
+.fieldCount {
+  position: absolute;
+  right: 14px;
+  top: 12px;
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.fieldCount.near {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* ---- One model out of quota, the other keeps going ---- */
+.limitBanner {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0 0;
+  padding: 14px 18px;
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: inset 3px 0 0 var(--warning);
+  font-size: 14px;
+  color: var(--ink);
+}
+.limitBanner b {
+  font-weight: 700;
+}
+.limitBanner .stamp {
+  margin-left: 8px;
+  color: var(--muted);
+}
+.projectDetails .syncToggle {
+  margin: 0 0 12px;
+}
