@@ -4,12 +4,15 @@ import { briefs, create } from "@/lib/store";
 import { workerAlive } from "@/lib/control";
 import { inputSchema } from "@/lib/types";
 import { modelDefaults, resolveModel } from "@/lib/subscription";
+import { serverBuild } from "@/lib/updater";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const unsafe = rejectUnsafe(req, { json: false });
   if (unsafe) return unsafe;
   return NextResponse.json({
+    // Polled every few seconds, so open tabs notice a restart on a new build quickly.
+    build: serverBuild(),
     workerAlive: workerAlive(),
     projects: briefs().map(({ id, topic, title, status, mode, createdAt, updatedAt, stage, queuedTurnAt, turnActive, autoResumeAt }) => ({
       id,

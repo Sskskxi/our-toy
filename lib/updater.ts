@@ -21,6 +21,11 @@ const SERVER_BUILD = (() => {
   }
 })();
 
+/** Build of this running server, for tabs to notice they hold old code. */
+export function serverBuild() {
+  return SERVER_BUILD;
+}
+
 /** Opt-in: the launcher applies new versions by itself when nothing is running. */
 export function autoUpdateEnabled() {
   return readJson<{ auto?: boolean }>(path.join(dataDir(), UPDATE_SETTINGS))?.auto === true;
